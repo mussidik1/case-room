@@ -7,6 +7,15 @@ Live EMS patient cases, played like a tabletop RPG. The instructor runs the DM s
 
 No accounts, no app installs, no server to run.
 
+## Cases
+
+| Case | Topic | Level | Time |
+|---|---|---|---|
+| Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement, the nitro trap, complete heart block, pacing | ALS | ~20 min |
+| Down on Route 40 | Motorcycle crash: tourniquet, pelvic binder, hemorrhagic shock, low-titer O whole blood, TXA | ALS | ~20 min |
+| Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, cortical signs, leave the pressure alone, destination | BLS/ALS | ~18 min |
+| The Birthday Party | Pediatric anaphylaxis: shark-fin capnography, IM epinephrine, repeat dosing, biphasic reactions | BLS/ALS | ~14 min |
+
 ## Running a game
 
 1. Open the DM screen on the computer connected to the projector.
@@ -22,6 +31,14 @@ No accounts, no app installs, no server to run.
 | M | Monitor beep on/off |
 
 **Fixed room code (for a Canva or PowerPoint slide):** open `host.html?r=MEDIC` and the room is always `MEDIC`. Students' QR code: `https://mussidik1.github.io/case-room/?r=MEDIC`.
+
+**Teams:** in Settings, set Teams to 2, 3, or 4 (A Shift through D Shift). Students are auto-balanced as they join. They can switch teams on their phones in the lobby, and you can tap a name in the lobby to move that player. Teams are ranked by average XP, so team size doesn't decide the winner.
+
+**Running several cases back to back:** at the end of a case, **Next case, keep XP** returns to setup with everyone's XP intact, so a full refresher day plays like a campaign. **New game, reset XP** starts everyone over.
+
+**Exporting results:** the final screen (and Settings, any time) has two downloads. Practice bots are left out of both.
+- **Summary (CSV):** each player's rank, class, team, XP, level, best, reasonable, and harmful calls, missed decisions, rolls, and join time. It also lists the party's decision at every step and the patient's HP afterward. This is useful for CE attendance records.
+- **Decision log (CSV):** one row per player per step, with their choice, its grade, their d20 roll, total, DC, the result, and the XP earned.
 
 **Practicing alone:** in the lobby, tap **+ Practice party** to add 6 bots. To play as a student on the same device, open the join link in another tab.
 

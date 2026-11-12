@@ -168,9 +168,10 @@
       if (rr <= 0) return 0;
       this.breathPhase = (this.breathPhase + (dt * rr) / 60) % 1;
       const p = this.breathPhase;
-      const rise = sig((p - 0.1) / 0.012);
+      const shark = v.cap === 'shark'; // bronchospasm: slow, sloped upstroke
+      const rise = sig((p - 0.1) / (shark ? 0.05 : 0.012));
       const fall = sig((p - 0.58) / 0.01);
-      const plateau = 0.88 + 0.12 * clamp((p - 0.12) / 0.46, 0, 1);
+      const plateau = shark ? 0.42 + 0.58 * clamp((p - 0.06) / 0.52, 0, 1) : 0.88 + 0.12 * clamp((p - 0.12) / 0.46, 0, 1);
       return (v.etco2 || 0) * rise * (1 - fall) * plateau;
     }
 

@@ -14,7 +14,7 @@
   const LS_SETTINGS = 'caseroom-settings';
   const LS_SAVE = 'caseroom-host-save';
 
-  const DEFAULT_SETTINGS = { timer: 45, dice: true, follow: 'party', board: 'each', showRhythm: false, sound: false };
+  const DEFAULT_SETTINGS = { timer: 45, dice: true, follow: 'party', board: 'each', showRhythm: false, sound: false, teams: 0 };
 
   const G = {
     phase: 'setup',
@@ -34,6 +34,7 @@
     adhoc: null,
     pendingNext: null,
     finished: false,
+    history: [],
     net: { ok: 0, total: 0, list: [], local: false },
   };
 
@@ -128,7 +129,7 @@
     const pr = progress();
     const rk = ranked();
     const xp = {};
-    rk.forEach((p, i) => { xp[p.pid] = [p.xp, i + 1, R.levelFor(p.xp).level, p.lastXp || 0]; });
+    rk.forEach((p, i) => { xp[p.pid] = [p.xp, i + 1, R.levelFor(p.xp).level, p.lastXp || 0, p.team || '']; });
     const mv = monitor ? monitor.snapshot() : {};
     const s = {
       app: 'caseroom', v: 2, hid: G.hid, seq: ++G.seq, ts: Date.now(), room: G.room,
@@ -143,6 +144,7 @@
       insp: rk.filter((p) => p.insp).map((p) => p.pid),
       xp,
       top: rk.slice(0, 5).map((p) => [p.name, p.cls, p.xp]),
+      teams: teamStandings().map((t) => [t.id, t.name, t.color, t.avg, t.members]),
     };
     const a = G.ask;
     if (a && (G.phase === 'choose' || G.phase === 'roll')) {
@@ -178,9 +180,57 @@
   /* ---------------- player messages ---------------- */
 
   function addPlayer(pid, name, cls, bot) {
-    const p = { pid, name: cleanName(name), cls: R.CLASSES[cls] ? cls : 'emt', xp: 0, lastXp: 0, joined: Date.now(), seen: Date.now(), bot: !!bot, crits: 0, fumbles: 0, insp: false };
+    const p = { pid, name: cleanName(name), cls: R.CLASSES[cls] ? cls : 'emt', xp: 0, lastXp: 0, joined: Date.now(), seen: Date.now(), bot: !!bot, crits: 0, fumbles: 0, insp: false, team: null, log: [] };
     G.players.set(pid, p);
+    assignTeam(p);
     return p;
+  }
+
+  /* ---- teams ---- */
+  function teamList() { return R.TEAMS.slice(0, G.settings.teams || 0); }
+  function teamOf(id) { return R.TEAMS.find((t) => t.id === id) || null; }
+  function assignTeam(p) {
+    const ts = teamList();
+    if (!ts.length) return;
+    if (p.team && ts.some((t) => t.id === p.team)) return;
+    const counts = {};
+    ts.forEach((t) => { counts[t.id] = 0; });
+    for (const q of G.players.values()) if (q !== p && !G.kicked.has(q.pid) && counts[q.team] != null) counts[q.team]++;
+    p.team = ts.slice().sort((a, b) => counts[a.id] - counts[b.id])[0].id;
+  }
+  function ensureTeams() { for (const p of G.players.values()) assignTeam(p); }
+  function teamStandings() {
+    const ts = teamList();
+    if (!ts.length) return [];
+    const people = ranked();
+    const rows = ts.map((t) => {
+      const mem = people.filter((p) => p.team === t.id);
+      const total = mem.reduce((sum, p) => sum + p.xp, 0);
+      return { id: t.id, name: t.name, color: t.color, members: mem.length, total, avg: mem.length ? Math.round(total / mem.length) : 0 };
+    });
+    rows.sort((a, b) => b.avg - a.avg || b.total - a.total);
+    return rows;
+  }
+
+  /* ---- session log (for export) ---- */
+  function logHistory() {
+    const r = G.res, a = G.ask;
+    if (!r || !a) return;
+    const st = step();
+    const isRoll = a.kind === 'roll';
+    const o = !isRoll && r.party ? opt(st, r.party.k) : null;
+    const entry = {
+      sid: r.sid, at: Date.now(), caseTitle: G.caseDef ? G.caseDef.title : '',
+      title: isRoll ? (a.spec.title || (st && st.title) || 'Roll') : st.title,
+      kind: isRoll ? (a.adhoc ? 'DM roll' : 'Group roll') : 'Decision',
+      action: o ? `${o.k}: ${o.text}` : isRoll ? `${R.ABILITIES[a.spec.check.ab].name} check, DC ${a.spec.check.dc}` : '',
+      grade: o ? o.grade : '',
+      ok: r.party ? r.party.ok : null,
+      forced: !!(r.party && r.party.forced),
+      hp: Math.round(G.hp),
+    };
+    const i = G.history.findIndex((h) => h.sid === entry.sid);
+    if (i >= 0) G.history[i] = entry; else G.history.push(entry);
   }
 
   function onUp(m) {
@@ -196,6 +246,11 @@
       if (R.CLASSES[m.cls]) p.cls = m.cls;
     }
     p.seen = Date.now();
+    if (m.t === 'team' && ['lobby', 'setup'].includes(G.phase) && teamList().some((t) => t.id === m.team)) {
+      p.team = m.team;
+      if (G.phase === 'lobby') scheduleLive();
+    }
+    assignTeam(p);
     const a = G.ask;
     if (m.t === 'pick' && a && !a.closed && a.kind === 'choice' && m.sid === a.sid && !a.picks.has(p.pid)) {
       const st = step();
@@ -238,7 +293,6 @@
 
   function beginCase() {
     if (!G.caseDef) return;
-    if (G.finished) for (const p of G.players.values()) { p.xp = 0; p.lastXp = 0; p.crits = 0; p.fumbles = 0; p.insp = false; }
     G.finished = false;
     G.hp = G.hpMax = G.caseDef.hp || 100;
     G.stepIdx = -1;
@@ -360,6 +414,10 @@
       p.xp += xp;
       p.lastXp = xp;
       per[pid] = x;
+      p.log.push({ caseTitle: G.caseDef.title, title: st.title, kind: 'Decision', k: pk.k, text: o.text, grade: o.grade, raw: x.raw, total: x.total, dc: G.settings.dice ? o.check.dc : null, ok: x.ok, crit: x.crit, xp, at: Date.now() });
+    }
+    for (const p of activePlayers()) {
+      if (!a.picks.has(p.pid)) p.log.push({ caseTitle: G.caseDef.title, title: st.title, kind: 'Decision', k: '', text: '', grade: 'none', raw: null, total: null, dc: null, ok: null, crit: null, xp: 0, at: Date.now() });
     }
     let partyK;
     if (G.settings.follow === 'best' || a.picks.size === 0) partyK = bestKeys(st)[0];
@@ -414,6 +472,7 @@
     res.effect = { note: eff.note || '', hp: eff.hp || 0, ecg: eff.ecg || null };
     applyEffect(eff);
     G.pendingNext = eff.next || null;
+    logHistory();
   }
 
   function applyEffect(eff) {
@@ -443,6 +502,7 @@
       p.xp += x.xp;
       p.lastXp = x.xp;
       per[p.pid] = x;
+      p.log.push({ caseTitle: G.caseDef ? G.caseDef.title : '', title: spec.title || (step() || {}).title || 'Roll', kind: a.adhoc ? 'DM roll' : 'Group roll', k: '', text: `${R.ABILITIES[spec.check.ab].name} check`, grade: '', raw: x.raw, total: x.total, dc: spec.check.dc, ok: x.ok, crit: x.crit, xp: x.xp, at: Date.now() });
     }
     const xs = Object.values(per);
     let ok, passed = 0, total = 0, dmRoll = null;
@@ -457,6 +517,7 @@
     const eff = (ok ? spec.success : spec.fail) || {};
     G.res = { sid: a.sid, kind: 'roll', per, party: { ok, passed, total, dmRoll, ab: spec.check.ab, dc: spec.check.dc }, effect: { note: eff.note || '', hp: eff.hp || 0 }, preHp: G.hp, first: false };
     applyEffect(eff);
+    logHistory();
     G.phase = 'rollReveal';
     saveGame();
     render();
@@ -473,6 +534,7 @@
     const eff = (ok ? spec.success : spec.fail) || {};
     res.effect = { note: eff.note || '', hp: eff.hp || 0 };
     applyEffect(eff);
+    logHistory();
     render();
     publish();
   }
@@ -500,7 +562,8 @@
     G.res = null;
     if (!G.finished) {
       G.finished = true;
-      if (G.hp > 0) for (const p of G.players.values()) { p.xp += R.XP.survive; p.lastXp = R.XP.survive; }
+      if (G.hp > 0) for (const p of G.players.values()) { p.xp += R.XP.survive; p.lastXp = R.XP.survive; p.log.push({ caseTitle: G.caseDef.title, title: 'Patient survived', kind: 'Bonus', k: '', text: '', grade: '', raw: null, total: null, dc: null, ok: null, crit: null, xp: R.XP.survive, at: Date.now() }); }
+      G.history.push({ sid: 'end-' + Date.now(), at: Date.now(), caseTitle: G.caseDef.title, title: 'Outcome', kind: 'Outcome', action: G.hp > 0 ? 'Patient survived' : 'Patient crashed', grade: '', ok: G.hp > 0, forced: false, hp: Math.round(G.hp) });
     }
     G.debrief = st || [...steps()].reverse().find((s) => s.type === 'debrief') || null;
     G.phase = 'final';
@@ -572,7 +635,7 @@
     if (!G.room || !G.caseDef) return;
     saveJson(LS_SAVE, {
       ts: Date.now(), room: G.room, caseId: G.caseDef.id, stepIdx: G.stepIdx, hp: G.hp, finished: G.finished,
-      players: [...G.players.values()], kicked: [...G.kicked], settings: G.settings, phase: G.phase,
+      players: [...G.players.values()], kicked: [...G.kicked], settings: G.settings, phase: G.phase, history: G.history,
       vit: monitor ? monitor.snapshot() : null,
     });
   }
@@ -586,7 +649,8 @@
     G.room = s.room;
     G.caseDef = CASES.find((c) => c.id === s.caseId);
     G.settings = Object.assign({}, DEFAULT_SETTINGS, s.settings || {});
-    G.players = new Map(s.players.map((p) => [p.pid, p]));
+    G.players = new Map(s.players.map((p) => [p.pid, Object.assign({ log: [], team: null }, p)]));
+    G.history = s.history || [];
     G.kicked = new Set(s.kicked || []);
     G.hp = s.hp;
     G.hpMax = G.caseDef.hp || 100;
@@ -686,6 +750,7 @@
       <label class="row"><span>Decision timer</span>${seg('timer', [[30, '30s'], [45, '45s'], [60, '60s'], [90, '90s'], [0, 'Off']], s.timer)}</label>
       <label class="row"><span>Dice rolls</span>${seg('dice', [[true, 'On'], [false, 'Off']], s.dice)}</label>
       <label class="row"><span>Patient follows</span>${seg('follow', [['party', 'Party vote'], ['best', 'Best answer']], s.follow)}</label>
+      <label class="row"><span>Teams</span>${seg('teams', [[0, 'Off'], [2, '2'], [3, '3'], [4, '4']], s.teams)}</label>
       <label class="row"><span>Standings</span>${seg('board', [['each', 'After each decision'], ['end', 'End only']], s.board)}</label>
       <label class="row"><span>Rhythm name on monitor</span>${seg('showRhythm', [[false, 'Hide'], [true, 'Show']], s.showRhythm)}</label>
       <label class="row"><span>Monitor beep</span>${seg('sound', [[false, 'Off'], [true, 'On']], s.sound)}</label>`;
@@ -703,6 +768,7 @@
         $$('button', sg).forEach((x) => x.classList.toggle('on', x === b));
         if (k === 'showRhythm') monitor.setShowRhythm(v);
         if (k === 'sound') monitor.enableSound(v);
+        if (k === 'teams') { ensureTeams(); if (G.phase === 'lobby') renderLobby(); viewKey = ''; if (!['setup', 'lobby'].includes(G.phase)) render(); }
         renderControls();
         schedulePublish();
       });
@@ -780,15 +846,35 @@
       };
     }
     const list = ranked();
-    $('#lobbyParty').innerHTML = list.length ? list.map((p) => `
-      <div class="pc" data-pid="${esc(p.pid)}">
+    const ts = teamList();
+    const chip = (p) => `
+      <div class="pc" data-pid="${esc(p.pid)}"${ts.length ? ' title="Tap to move to the next team"' : ''}>
         <span class="pc-i">${R.CLASSES[p.cls].icon}</span>
         <span class="pc-n">${esc(p.name)}</span>
         <span class="pc-c">${esc(R.CLASSES[p.cls].name)}${p.bot ? ' · bot' : ''}</span>
         <button type="button" class="pc-x" title="Remove from room">✕</button>
-      </div>`).join('') : '<div class="empty">No one yet. Students scan the code to join and pick a class.</div>';
-    for (const x of $$('.pc-x', $('#lobbyParty'))) {
-      x.onclick = () => { const pid = x.closest('.pc').dataset.pid; G.kicked.add(pid); G.players.delete(pid); renderLobby(); renderControls(); renderBar(); publish(); };
+      </div>`;
+    let html;
+    if (!list.length) html = '<div class="empty">No one yet. Students scan the code to join and pick a class.</div>';
+    else if (ts.length) {
+      html = `<div class="teams-grid" style="--n:${ts.length}">${ts.map((t) => {
+        const mem = list.filter((p) => p.team === t.id);
+        return `<div class="team-col" style="--tc:${t.color}"><div class="team-h"><span class="tdot"></span>${esc(t.name)}<span class="muted">${mem.length}</span></div>${mem.map(chip).join('')}</div>`;
+      }).join('')}</div>`;
+    } else html = list.map(chip).join('');
+    const box = $('#lobbyParty');
+    if (box.dataset.h !== html) { box.innerHTML = html; box.dataset.h = html; }
+    for (const c of $$('.pc', box)) {
+      c.onclick = (e) => {
+        const pid = c.dataset.pid;
+        if (e.target.closest('.pc-x')) { G.kicked.add(pid); G.players.delete(pid); renderLobby(); renderControls(); renderBar(); publish(); return; }
+        const p = G.players.get(pid);
+        if (!p || !ts.length) return;
+        const i = ts.findIndex((t) => t.id === p.team);
+        p.team = ts[(i + 1) % ts.length].id;
+        renderLobby();
+        publish();
+      };
     }
   }
 
@@ -955,23 +1041,39 @@
     for (const b of $$('[data-force]', left)) b.onclick = () => forceRoll(b.dataset.force === '1');
   }
 
+  function teamBoard(rows) {
+    if (!rows.length) return '';
+    const max = Math.max(1, ...rows.map((t) => t.avg));
+    return `<div class="team-board">${rows.map((t, i) => `
+      <div class="tb-row" style="--tc:${t.color}">
+        <span class="b-rank">${i + 1}</span>
+        <span class="tb-name">${esc(t.name)}<small>${t.members} ${t.members === 1 ? 'member' : 'members'}</small></span>
+        <span class="tb-bar"><i style="width:${Math.round((100 * t.avg) / max)}%"></i></span>
+        <span class="b-xp">${t.avg} <small>avg XP</small></span>
+      </div>`).join('')}</div>`;
+  }
+
   function renderBoard(left) {
     const rk = ranked();
+    const tsr = teamStandings();
+    const shown = tsr.length ? 5 : 8;
     left.innerHTML = `
-      <div class="kicker">Party standings</div>
-      <h1 class="title">Who's carrying the bag</h1>
-      <ol class="board">${rk.slice(0, 8).map((p, i) => {
+      <div class="kicker">${tsr.length ? 'Team standings' : 'Party standings'}</div>
+      <h1 class="title">${tsr.length ? 'Which shift is carrying the bag' : 'Who\'s carrying the bag'}</h1>
+      ${teamBoard(tsr)}
+      <ol class="board">${rk.slice(0, shown).map((p, i) => {
         const lv = R.levelFor(p.xp);
-        return `<li class="${p.insp ? 'insp' : ''}" data-pid="${esc(p.pid)}">
+        const t = p.team ? teamOf(p.team) : null;
+        return `<li class="${p.insp ? 'insp' : ''} ${t ? 'has-team' : ''}" data-pid="${esc(p.pid)}"${t ? ` style="--tc:${t.color}"` : ''}>
           <span class="b-rank">${i + 1}</span>
           <span class="b-icon">${R.CLASSES[p.cls].icon}</span>
-          <span class="b-name">${esc(p.name)}<small>Lv ${lv.level} ${esc(lv.title)} · ${esc(R.CLASSES[p.cls].name)}</small></span>
+          <span class="b-name">${esc(p.name)}<small>Lv ${lv.level} ${esc(lv.title)} · ${esc(R.CLASSES[p.cls].name)}${t ? ' · ' + esc(t.name) : ''}</small></span>
           <span class="b-delta">${p.lastXp ? '+' + p.lastXp : ''}</span>
           <span class="b-xp">${p.xp} XP</span>
           <button type="button" class="b-insp" title="Grant Inspiration: advantage on their next roll">${p.insp ? '✨' : '✧'}</button>
         </li>`;
       }).join('')}</ol>
-      ${rk.length > 8 ? `<p class="muted">+${rk.length - 8} more adventurers</p>` : ''}
+      ${rk.length > shown ? `<p class="muted">+${rk.length - shown} more adventurers</p>` : ''}
       <p class="muted small">✧ Grant Inspiration for a great answer out loud. They roll with advantage next time.</p>`;
     for (const b of $$('.b-insp', left)) {
       b.onclick = () => {
@@ -1041,6 +1143,8 @@
     const rk = ranked();
     const win = G.hp > 0;
     const mvp = rk[0];
+    const tsr = teamStandings();
+    const champ = tsr[0];
     el.innerHTML = `
       <div class="final">
         <div class="final-l">
@@ -1048,21 +1152,29 @@
           <h1 class="title">${esc(d.title || 'The End')}</h1>
           <div class="readaloud">${esc(d.text || '')}</div>
           ${d.points ? `<ul class="points">${d.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
-          <div class="fate ${win ? 'win' : 'lose'}"><b>${win ? 'The patient survived' : 'The patient crashed'}</b> · ${Math.round(G.hp)} / ${G.hpMax} HP<p>${esc(win ? d.win || '' : d.lose || '')}</p></div>
+          <div class="fate ${win ? 'win' : 'lose'}"><b>${win ? 'The patient survived' : 'The patient crashed'}</b> · ${Math.round(G.hp)} / ${G.hpMax} HP<p>${esc(win ? d.win || '' : d.lose || '')}</p>${win ? `<p class="small">Everyone earned +${R.XP.survive} XP for keeping the patient alive.</p>` : ''}</div>
+          <div class="final-actions">
+            <button type="button" class="primary" id="btnSetup">Next case, keep XP</button>
+            <button type="button" class="ghost" id="btnAgain">New game, reset XP</button>
+          </div>
+          <div class="final-actions export">
+            <span class="muted small">Results:</span>
+            <button type="button" class="ghost" data-export="summary">⬇ Summary (CSV)</button>
+            <button type="button" class="ghost" data-export="log">⬇ Decision log (CSV)</button>
+          </div>
         </div>
         <div class="final-r">
           <h2>Final standings</h2>
+          ${champ && champ.members ? `<div class="champ" style="--tc:${champ.color}"><span class="tdot"></span><b>${esc(champ.name)} wins</b><span>${champ.avg} avg XP · ${champ.members} ${champ.members === 1 ? 'member' : 'members'}</span></div>${teamBoard(tsr)}` : ''}
           ${mvp ? `<div class="mvp">${R.CLASSES[mvp.cls].icon} <b>${esc(mvp.name)}</b><span>MVP · ${mvp.xp} XP · Lv ${R.levelFor(mvp.xp).level} ${esc(R.levelFor(mvp.xp).title)}</span></div>` : ''}
-          <ol class="board compact">${rk.slice(0, 8).map((p, i) => `<li><span class="b-rank">${i + 1}</span><span class="b-icon">${R.CLASSES[p.cls].icon}</span><span class="b-name">${esc(p.name)}<small>${p.crits ? `✦${p.crits} ` : ''}${p.fumbles ? `✖${p.fumbles}` : ''}</small></span><span class="b-xp">${p.xp} XP</span></li>`).join('')}</ol>
-          ${win ? `<p class="muted small">Everyone earned +${R.XP.survive} XP for keeping him alive.</p>` : ''}
-          <div class="final-actions">
-            <button type="button" class="primary" id="btnAgain">Play again, same party</button>
-            <button type="button" class="ghost" id="btnSetup">Back to setup</button>
-          </div>
+          <ol class="board compact">${rk.slice(0, tsr.length ? 5 : 8).map((p, i) => `<li><span class="b-rank">${i + 1}</span><span class="b-icon">${R.CLASSES[p.cls].icon}</span><span class="b-name">${esc(p.name)}<small>${p.crits ? `✦${p.crits} ` : ''}${p.fumbles ? `✖${p.fumbles}` : ''}</small></span><span class="b-xp">${p.xp} XP</span></li>`).join('')}</ol>
+
         </div>
       </div>`;
+    bindExport(el);
     $('#btnAgain').onclick = () => {
-      for (const p of G.players.values()) { p.xp = 0; p.lastXp = 0; p.crits = 0; p.fumbles = 0; p.insp = false; }
+      for (const p of G.players.values()) { p.xp = 0; p.lastXp = 0; p.crits = 0; p.fumbles = 0; p.insp = false; p.log = []; }
+      G.history = [];
       G.phase = 'lobby';
       viewKey = '';
       render();
@@ -1075,6 +1187,89 @@
       viewKey = '';
       render();
     };
+  }
+
+  /* ---------------- export (CSV) ---------------- */
+
+  function csvCell(v) {
+    if (v == null) return '';
+    let t = String(v);
+    if (typeof v === 'string' && /^[=+\-@]/.test(t)) t = "'" + t; // keep spreadsheets from running names as formulas
+    return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  }
+  function toCsv(rows) { return '\ufeff' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'); }
+  function stamp(d) {
+    const z = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}`;
+  }
+  function fileStamp() { return stamp(new Date()).replace(/[: ]/g, '-'); }
+  function saveFile(name, text) {
+    const blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+  const GRADE_TXT = { best: 'Best call', ok: 'Reasonable', wrong: 'Harmful', none: 'No answer' };
+  function resultTxt(e) {
+    if (e.ok == null) return '';
+    if (e.crit === 'nat20') return 'Critical success';
+    if (e.crit === 'nat1') return 'Critical fail';
+    return e.ok ? 'Success' : 'Fail';
+  }
+  function people() { return ranked().filter((p) => !p.bot); }
+
+  function exportSummary() {
+    const ps = people();
+    const teams = teamList().length > 0;
+    const cases = [...new Set(G.history.map((h) => h.caseTitle).filter(Boolean))];
+    const rows = [
+      ['Case Room results'],
+      ['Exported', stamp(new Date())],
+      ['Room', G.room || ''],
+      ['Cases played', cases.join('; ') || (G.caseDef ? G.caseDef.title : '')],
+      ['Last patient', G.finished ? (G.hp > 0 ? `Survived (${Math.round(G.hp)}/${G.hpMax} HP)` : `Crashed (0/${G.hpMax} HP)`) : `In progress (${Math.round(G.hp)}/${G.hpMax} HP)`],
+      ['Players', ps.length],
+      [],
+      ['Rank', 'Name', 'Class', ...(teams ? ['Team'] : []), 'XP', 'Level', 'Title', 'Decisions answered', 'Best calls', 'Reasonable calls', 'Harmful calls', 'No answer', 'Checks passed', 'Checks rolled', 'Natural 20s', 'Natural 1s', 'Joined'],
+    ];
+    ps.forEach((p, i) => {
+      const L = p.log || [];
+      const dec = L.filter((e) => e.kind === 'Decision');
+      const rolls = L.filter((e) => e.raw != null);
+      const lv = R.levelFor(p.xp);
+      const t = teamOf(p.team);
+      rows.push([i + 1, p.name, R.CLASSES[p.cls].name, ...(teams ? [t ? t.name : ''] : []), p.xp, lv.level, lv.title,
+        dec.filter((e) => e.grade !== 'none').length, dec.filter((e) => e.grade === 'best').length, dec.filter((e) => e.grade === 'ok').length,
+        dec.filter((e) => e.grade === 'wrong').length, dec.filter((e) => e.grade === 'none').length,
+        rolls.filter((e) => e.ok).length, rolls.length, rolls.filter((e) => e.crit === 'nat20').length, rolls.filter((e) => e.crit === 'nat1').length,
+        stamp(new Date(p.joined))]);
+    });
+    if (teams) {
+      rows.push([], ['Team', 'Rank', 'Members', 'Average XP', 'Total XP']);
+      teamStandings().forEach((t, i) => rows.push([t.name, i + 1, t.members, t.avg, t.total]));
+    }
+    rows.push([], ['Party decisions'], ['Case', 'Step', 'Type', 'Party action', 'Grade', 'Result', 'DM ruling', 'Patient HP after']);
+    for (const h of G.history) rows.push([h.caseTitle, h.title, h.kind, h.action, GRADE_TXT[h.grade] || '', h.ok == null ? '' : h.kind === 'Outcome' ? '' : h.ok ? 'Success' : 'Failure', h.forced ? 'Yes' : '', h.hp]);
+    saveFile(`case-room-${G.room || 'room'}-${fileStamp()}-summary.csv`, toCsv(rows));
+  }
+
+  function exportLog() {
+    const teams = teamList().length > 0;
+    const rows = [['Name', 'Class', ...(teams ? ['Team'] : []), 'Case', 'Step', 'Type', 'Choice', 'Choice text', 'Grade', 'd20', 'Total', 'DC', 'Result', 'XP', 'Time']];
+    for (const p of people()) {
+      const t = teamOf(p.team);
+      for (const e of p.log || []) {
+        rows.push([p.name, R.CLASSES[p.cls].name, ...(teams ? [t ? t.name : ''] : []), e.caseTitle, e.title, e.kind, e.k, e.text, GRADE_TXT[e.grade] || '', e.raw, e.total, e.dc, resultTxt(e), e.xp, stamp(new Date(e.at))]);
+      }
+    }
+    saveFile(`case-room-${G.room || 'room'}-${fileStamp()}-decisions.csv`, toCsv(rows));
+  }
+
+  function bindExport(root) {
+    for (const b of $$('[data-export]', root)) b.onclick = () => (b.dataset.export === 'log' ? exportLog() : exportSummary());
   }
 
   /* ---------------- modals & keys ---------------- */
@@ -1109,9 +1304,11 @@
         <h2>Settings</h2>
         <div class="settings">${settingsHtml()}</div>
         <p class="muted small">Join link: ${esc(G.room ? joinUrl() : 'open a room first')}</p>
+        ${people().length ? `<div class="row"><span>Export results</span><span class="exp-btns"><button type="button" class="ghost" data-export="summary">⬇ Summary (CSV)</button><button type="button" class="ghost" data-export="log">⬇ Decision log (CSV)</button></span></div>` : ''}
         <div class="modal-actions"><button type="button" class="primary" data-close>Done</button></div>
       </div>`;
     bindSettings(m);
+    bindExport(m);
     $('[data-close]', m).onclick = () => closeModal('#mSettings');
   }
 
@@ -1153,7 +1350,7 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
     keepAwake();
     render();
-    window.CRHost = { G, next, addBots, startAdhoc, closeChoice, closeRoll }; // handy for testing
+    window.CRHost = { G, next, addBots, startAdhoc, closeChoice, closeRoll, exportSummary, exportLog, teamStandings }; // handy for testing
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);

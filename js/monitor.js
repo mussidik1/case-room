@@ -111,6 +111,7 @@
       } else if (t.label !== undefined) {
         this.cur.label = t.label;
       }
+      if (t.cap !== undefined) { this.cur.cap = t.cap; this.gen.set({ cap: t.cap }); }
       const to = {};
       for (const k of KEYS) to[k] = t[k] != null ? t[k] : this.cur[k];
       const from = {};
@@ -145,7 +146,7 @@
 
     genParams() {
       const c = this.cur;
-      return { rhythm: c.rhythm, hr: c.hr, ar: c.ar, st: c.st, sbp: c.sbp, rr: c.rr, etco2: c.etco2, pulseless: c.rhythm === 'vfib' || c.rhythm === 'asystole' };
+      return { rhythm: c.rhythm, hr: c.hr, ar: c.ar, st: c.st, sbp: c.sbp, rr: c.rr, etco2: c.etco2, cap: c.cap || 'normal', pulseless: c.rhythm === 'vfib' || c.rhythm === 'asystole' };
     }
 
     beep() {

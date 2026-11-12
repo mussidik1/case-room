@@ -79,5 +79,13 @@
     </svg>`;
   }
 
-  root.CRRules = { ABILITIES, AB_ORDER, CLASSES, CLASS_ORDER, JUDGMENT_BONUS, XP, LEVELS, levelFor, mod, fmtMod, d20, resolve, d20Svg };
+  // Team mode: fire/EMS shifts compete. Score = average XP per member.
+  const TEAMS = [
+    { id: 'A', name: 'A Shift', color: '#ff6b6b' },
+    { id: 'B', name: 'B Shift', color: '#4dabf7' },
+    { id: 'C', name: 'C Shift', color: '#ffd43b' },
+    { id: 'D', name: 'D Shift', color: '#69db7c' },
+  ];
+
+  root.CRRules = { TEAMS, ABILITIES, AB_ORDER, CLASSES, CLASS_ORDER, JUDGMENT_BONUS, XP, LEVELS, levelFor, mod, fmtMod, d20, resolve, d20Svg };
 })(window);

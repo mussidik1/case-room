@@ -130,14 +130,25 @@
   function me() {
     const s = P.st;
     const x = s && s.xp && s.xp[P.pid];
-    return { xp: x ? x[0] : 0, rank: x ? x[1] : null, level: x ? x[2] : 1, last: x ? x[3] : 0, n: s ? s.n : 0 };
+    return { xp: x ? x[0] : 0, rank: x ? x[1] : null, level: x ? x[2] : 1, last: x ? x[3] : 0, team: x ? x[4] || '' : '', n: s ? s.n : 0 };
   }
+
+  // [id, name, color, avgXp, members] in standings order
+  function myTeam() {
+    const s = P.st, m = me();
+    if (!s || !s.teams || !s.teams.length || !m.team) return null;
+    const i = s.teams.findIndex((t) => t[0] === m.team);
+    if (i < 0) return null;
+    const t = s.teams[i];
+    return { id: t[0], name: t[1], color: t[2], avg: t[3], members: t[4], rank: i + 1, of: s.teams.length };
+  }
+  function teamBadge(t) { return t ? `<span class="tbadge" style="--tc:${t.color}">${esc(t.name)}</span>` : ''; }
 
   function render() {
     const s = P.st;
     const c = R.CLASSES[P.cls] || R.CLASSES.emt;
     $('.ph-room').textContent = P.room;
-    $('.ph-me').innerHTML = `${c.icon} <b>${esc(P.name)}</b>`;
+    $('.ph-me').innerHTML = `${c.icon} <b>${esc(P.name)}</b> ${teamBadge(myTeam())}`;
     const m = me();
     $('.ph-xp').textContent = s && s.phase !== 'setup' ? `Lv ${m.level} · ${m.xp} XP` : '';
 
@@ -153,7 +164,14 @@
     const ph = s.phase;
     const a = s.ask;
     if (ph === 'setup') return setContent('setup', `<div class="card center"><div class="spin">${R.d20Svg('')}</div><h2>The DM is setting up</h2><p class="muted">Hang tight.</p></div>`);
-    if (ph === 'lobby') return setContent('lobby' + P.cls + P.name, sheet() + `<p class="muted center">You're in. Watch the big screen for the adventure to begin.</p>`);
+    if (ph === 'lobby') {
+      const teams = s.teams || [];
+      const mt = myTeam();
+      const picker = teams.length ? `<div class="card"><div class="kicker">Your team</div><div class="team-pick">${teams.slice().sort((a, b) => a[0].localeCompare(b[0])).map((t) => `<button type="button" class="tp ${mt && mt.id === t[0] ? 'on' : ''}" data-team="${esc(t[0])}" style="--tc:${t[2]}"><b>${esc(t[1])}</b><span>${t[4]} ${t[4] === 1 ? 'member' : 'members'}</span></button>`).join('')}</div><p class="muted small">Tap to switch teams before the game starts.</p></div>` : '';
+      return setContent('lobby' + P.cls + P.name + JSON.stringify(teams.map((t) => [t[0], t[4]])) + (mt ? mt.id : ''), sheet() + picker + `<p class="muted center">You're in. Watch the big screen for the adventure to begin.</p>`, () => {
+        for (const b of $$('.tp')) b.onclick = () => { send({ t: 'team', team: b.dataset.team }); buzz(10); $$('.tp').forEach((x) => x.classList.toggle('on', x === b)); };
+      });
+    }
     if (ph === 'scene') {
       return setContent('scene' + (s.step && s.step.id), `<div class="card"><div class="kicker">Scene · ${esc(s.step.title)}</div><p class="story">${esc(s.step.text || '')}</p></div><p class="muted center">Listen to the DM.</p>`);
     }
@@ -321,7 +339,8 @@
     const lv = R.levelFor(m.xp);
     const pct = lv.next ? Math.round((100 * (m.xp - lv.floor)) / (lv.next - lv.floor)) : 100;
     const insp = (P.st.insp || []).includes(P.pid);
-    setContent('board' + m.xp + m.rank + insp, `
+    const tk = myTeam();
+    setContent('board' + m.xp + m.rank + insp + (tk ? tk.rank + '-' + tk.avg : ''), `
       <div class="card center standing">
         <div class="kicker">Party standings</div>
         <div class="rank">${m.rank ? '#' + m.rank : '—'}<small>of ${m.n}</small></div>
@@ -329,7 +348,14 @@
         <div class="lv">Level ${lv.level} · ${esc(lv.title)}</div>
         <div class="lvbar"><div style="width:${pct}%"></div></div>
         ${insp ? '<div class="insp">✨ The DM granted you Inspiration. Advantage on your next roll.</div>' : ''}
-      </div>`);
+      </div>
+      ${teamCard()}`);
+  }
+
+  function teamCard() {
+    const t = myTeam();
+    if (!t) return '';
+    return `<div class="card center team-card" style="--tc:${t.color}"><div class="kicker">Your team</div><div class="team-rank">${esc(t.name)} · #${t.rank} of ${t.of}</div><div class="muted">${t.avg} average XP · ${t.members} ${t.members === 1 ? 'member' : 'members'}</div></div>`;
   }
 
   function renderFinal() {
@@ -343,6 +369,7 @@
         <div class="xp">${m.xp} XP</div>
         <div class="lv">Level ${lv.level} · ${esc(lv.title)}</div>
       </div>
+      ${teamCard()}
       <p class="muted center">Thanks for playing. Watch the big screen for the debrief.</p>`);
   }
 

@@ -142,3 +142,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @keyframes land { 0% { transform: scale(1.4) rotate(-40deg); } 70% { transform: scale(.94); } 100% { transform: none; } }
 @keyframes pulse { 0%, 100% { transform: none; } 50% { transform: scale(1.12); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; } }
+
+/* teams */
+.tbadge { font-size: .7em; padding: .08em .5em; border-radius: 999px; border: 1px solid var(--tc); color: var(--tc); font-weight: 800; vertical-align: middle; margin-left: .25em; white-space: nowrap; }
+.team-pick { display: grid; grid-template-columns: 1fr 1fr; gap: .5em; margin: .55em 0 .2em; }
+.tp { display: grid; gap: .1em; text-align: left; background: var(--panel2); border: 1px solid var(--line); border-left: .4em solid var(--tc); border-radius: .7em; padding: .6em .7em; }
+.tp b { color: var(--tc); }
+.tp span { font-size: .75em; color: var(--muted); }
+.tp.on { border-color: var(--tc); background: color-mix(in srgb, var(--tc) 14%, var(--panel2)); box-shadow: 0 0 0 1px var(--tc) inset; }
+.team-card { border-color: var(--tc); }
+.team-rank { font: 800 1.45em var(--num); color: var(--tc); letter-spacing: .03em; }
