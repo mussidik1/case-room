@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<title>Case Room · Join</title>
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Cinzel:wght@600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="css/player.css">
+</head>
+<body class="player">
+<main id="app">
+  <section id="sJoin" hidden>
+    <div class="brand"><h1>Case Room</h1><p>Join the party. Pick a class. Roll for it.</p></div>
+    <form id="fJoin" autocomplete="off">
+      <label class="fld"><span>Room code</span><input id="inCode" maxlength="8" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="ABCD"></label>
+      <label class="fld"><span>Your name</span><input id="inName" maxlength="18" autocapitalize="words" spellcheck="false" placeholder="First name or call sign"></label>
+      <div class="fld"><span>Choose your class</span><div class="cls-pick" id="clsPick"></div></div>
+      <p class="err" id="joinErr"></p>
+      <button class="primary" type="submit">Join the party</button>
+    </form>
+    <p class="fine">Use a first name or call sign. Answers pass through public relays, so share nothing private.</p>
+  </section>
+  <section id="sMain" hidden>
+    <header class="ph"><span class="ph-room"></span><span class="ph-me"></span><span class="ph-xp"></span></header>
+    <div class="status" id="status" hidden></div>
+    <div id="content"></div>
+    <footer class="pf"><span id="netDot" class="dot"></span><span id="netTxt"></span><button type="button" id="btnLeave" class="link">Not you?</button></footer>
+  </section>
+</main>
+<script src="vendor/mqtt.min.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/net.js"></script>
+<script src="js/player.js"></script>
+</body>
+</html>

@@ -1,0 +1,1161 @@
+/* Case Room — host / Dungeon Master screen */
+(function () {
+  'use strict';
+  const R = window.CRRules, N = window.CRNet, W = window.CRWave;
+  const CASES = window.CR_CASES || [];
+  const $ = (s, el) => (el || document).querySelector(s);
+  const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const params = new URLSearchParams(location.search);
+  const CODE_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const BOT_NAMES = ['Medic 7', 'Engine 351', 'Truck 12', 'Ambo 4', 'Rescue 9', 'Squad 2', 'Medic 35', 'Tower 1', 'Brush 6', 'Boat 3', 'Chief 5', 'Paramedic 16'];
+  const GRADE = { best: 'Best call', ok: 'Reasonable', wrong: 'Harmful' };
+  const LS_SETTINGS = 'caseroom-settings';
+  const LS_SAVE = 'caseroom-host-save';
+
+  const DEFAULT_SETTINGS = { timer: 45, dice: true, follow: 'party', board: 'each', showRhythm: false, sound: false };
+
+  const G = {
+    phase: 'setup',
+    hid: N.rid(8),
+    seq: 0,
+    askN: 0,
+    room: null,
+    settings: Object.assign({}, DEFAULT_SETTINGS, loadJson(LS_SETTINGS) || {}),
+    caseDef: CASES[0] || null,
+    stepIdx: -1,
+    hp: 100,
+    hpMax: 100,
+    players: new Map(),
+    kicked: new Set(),
+    ask: null,
+    res: null,
+    adhoc: null,
+    pendingNext: null,
+    finished: false,
+    net: { ok: 0, total: 0, list: [], local: false },
+  };
+
+  let relay = null;
+  let monitor = null;
+  let timerInt = null;
+  let pubTimer = null;
+  let liveTimer = null;
+  let viewKey = '';
+
+  function loadJson(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
+  function saveJson(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode */ } }
+
+  /* ---------------- helpers ---------------- */
+
+  function newCode() {
+    const r = new Uint8Array(4);
+    crypto.getRandomValues(r);
+    return Array.from(r, (x) => CODE_ALPHA[x % CODE_ALPHA.length]).join('');
+  }
+  function cleanCode(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); }
+  function cleanName(s) { return String(s || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 18) || 'Adventurer'; }
+  function steps() { return G.caseDef ? G.caseDef.steps : []; }
+  function step() { return steps()[G.stepIdx] || null; }
+  function idxOf(id) { return steps().findIndex((s) => s.id === id); }
+  function opt(st, k) { return st && st.options ? st.options.find((o) => o.k === k) : null; }
+  function bestKeys(st) { return st.options.filter((o) => o.grade === 'best').map((o) => o.k); }
+  function activePlayers() {
+    const cut = Date.now() - 45000;
+    return [...G.players.values()].filter((p) => !G.kicked.has(p.pid) && (p.bot || p.seen > cut));
+  }
+  function mainSteps() { return steps().filter((s) => !s.branch); }
+  function progress() {
+    const ms = mainSteps();
+    const st = step();
+    if (!st) return { i: 0, n: ms.length };
+    let i = ms.indexOf(st);
+    if (i < 0) { for (let j = G.stepIdx; j >= 0; j--) { i = ms.indexOf(steps()[j]); if (i >= 0) break; } }
+    return { i: i + 1, n: ms.length };
+  }
+  function joinUrl() {
+    const u = new URL('./', location.href);
+    u.search = '';
+    u.searchParams.set('r', G.room);
+    if (params.get('relay')) u.searchParams.set('relay', params.get('relay'));
+    return u.toString();
+  }
+  function joinDisplay() {
+    const u = new URL('./', location.href);
+    return (u.host + u.pathname).replace(/\/$/, '');
+  }
+  function ranked() {
+    return [...G.players.values()].filter((p) => !G.kicked.has(p.pid)).sort((a, b) => b.xp - a.xp || a.joined - b.joined);
+  }
+
+  function qrSvg(text) {
+    const q = window.qrcode(0, 'M');
+    q.addData(text);
+    q.make();
+    const n = q.getModuleCount(), m = 4;
+    let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + m},${r + m}h1v1h-1z`;
+    return `<svg viewBox="0 0 ${n + 2 * m} ${n + 2 * m}" shape-rendering="crispEdges" role="img" aria-label="QR code to join"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#111"/></svg>`;
+  }
+
+  /* ---------------- networking ---------------- */
+
+  function startRelay() {
+    if (relay) relay.stop();
+    relay = new N.Relay({
+      room: G.room, role: 'host',
+      onUp: onUp,
+      onStatus: (s) => { G.net = s; renderBar(); },
+    }).start();
+    publish();
+    clearInterval(G.hb);
+    G.hb = setInterval(() => { if (G.phase !== 'setup') publish(); }, 4000);
+  }
+
+  function schedulePublish() {
+    if (pubTimer) return;
+    pubTimer = setTimeout(() => { pubTimer = null; publish(); }, 300);
+  }
+
+  function publish() {
+    if (!relay) return;
+    relay.publishState(buildState());
+  }
+
+  function buildState() {
+    const st = step();
+    const pr = progress();
+    const rk = ranked();
+    const xp = {};
+    rk.forEach((p, i) => { xp[p.pid] = [p.xp, i + 1, R.levelFor(p.xp).level, p.lastXp || 0]; });
+    const mv = monitor ? monitor.snapshot() : {};
+    const s = {
+      app: 'caseroom', v: 2, hid: G.hid, seq: ++G.seq, ts: Date.now(), room: G.room,
+      phase: G.phase,
+      title: G.caseDef ? G.caseDef.title : '',
+      step: st ? { id: st.id, type: st.type, title: st.title, text: st.type === 'scene' ? st.text : undefined, i: pr.i, n: pr.n } : null,
+      hp: [Math.round(G.hp), G.hpMax],
+      vit: mv.rhythm && mv.rhythm !== 'none' ? { hr: Math.round(mv.hr), bp: mv.nibpS ? `${mv.nibpS}/${mv.nibpD}` : '', spo2: Math.round(mv.spo2), etco2: Math.round(mv.etco2) } : null,
+      n: rk.length,
+      dice: G.settings.dice,
+      kicked: [...G.kicked].slice(-60),
+      insp: rk.filter((p) => p.insp).map((p) => p.pid),
+      xp,
+      top: rk.slice(0, 5).map((p) => [p.name, p.cls, p.xp]),
+    };
+    const a = G.ask;
+    if (a && (G.phase === 'choose' || G.phase === 'roll')) {
+      const spec = a.kind === 'roll' ? a.spec : st;
+      s.ask = {
+        sid: a.sid, kind: a.kind, title: spec.title, prompt: spec.prompt,
+        options: a.kind === 'choice' ? st.options.map((o) => ({ k: o.k, t: o.text, ab: o.check.ab })) : null,
+        ab: a.kind === 'roll' ? a.spec.check.ab : null,
+        rem: a.dur ? Math.max(0, a.dur - (Date.now() - a.opened)) : null,
+        dur: a.dur || null,
+      };
+      s.got = [...a.picks.keys()];
+      s.rolled = [...a.rolls.keys()];
+    }
+    if (G.res && (G.phase === 'reveal' || G.phase === 'rollReveal')) {
+      const r = G.res;
+      const per = {};
+      for (const [pid, x] of Object.entries(r.per)) per[pid] = [x.k || '', x.raw, x.bonus, x.total, x.ok ? 1 : 0, x.crit === 'nat20' ? 20 : x.crit === 'nat1' ? 1 : 0, x.xp, x.grade || '', x.ab || '', x.dc || 0];
+      s.res = {
+        sid: r.sid, kind: r.kind,
+        best: r.kind === 'choice' ? bestKeys(st) : null,
+        party: r.party ? { k: r.party.k || null, ok: r.party.ok, passed: r.party.passed, total: r.party.total, ab: r.party.ab, dc: r.party.dc } : null,
+        partyText: r.kind === 'choice' && r.party ? (opt(st, r.party.k) || {}).text : null,
+        note: r.effect ? r.effect.note : '',
+        hp: r.effect ? r.effect.hp || 0 : 0,
+        per,
+      };
+    }
+    if (G.phase === 'final') s.fin = { win: G.hp > 0 };
+    return s;
+  }
+
+  /* ---------------- player messages ---------------- */
+
+  function addPlayer(pid, name, cls, bot) {
+    const p = { pid, name: cleanName(name), cls: R.CLASSES[cls] ? cls : 'emt', xp: 0, lastXp: 0, joined: Date.now(), seen: Date.now(), bot: !!bot, crits: 0, fumbles: 0, insp: false };
+    G.players.set(pid, p);
+    return p;
+  }
+
+  function onUp(m) {
+    if (!m || typeof m.pid !== 'string' || m.pid.length > 32) return;
+    if (G.kicked.has(m.pid)) { schedulePublish(); return; }
+    if (G.phase === 'setup') return;
+    let p = G.players.get(m.pid);
+    if (!p) {
+      if (!m.name) return;
+      p = addPlayer(m.pid, m.name, m.cls);
+    } else if (m.t === 'join') {
+      p.name = cleanName(m.name);
+      if (R.CLASSES[m.cls]) p.cls = m.cls;
+    }
+    p.seen = Date.now();
+    const a = G.ask;
+    if (m.t === 'pick' && a && !a.closed && a.kind === 'choice' && m.sid === a.sid && !a.picks.has(p.pid)) {
+      const st = step();
+      if (opt(st, m.k)) a.picks.set(p.pid, { k: m.k, t: Date.now() });
+      checkAllIn();
+    } else if (m.t === 'roll' && a && !a.closed && m.sid === a.sid && !a.rolls.has(p.pid)) {
+      if (a.kind === 'choice' && !a.picks.has(p.pid)) return;
+      const d = Array.isArray(m.d) ? m.d.slice(0, 2).map((x) => parseInt(x, 10)).filter((x) => x >= 1 && x <= 20) : [];
+      if (d.length) a.rolls.set(p.pid, { d });
+      checkAllIn();
+    }
+    schedulePublish();
+    scheduleLive();
+  }
+
+  function checkAllIn() {
+    const a = G.ask;
+    if (!a || a.closed) return;
+    const act = activePlayers();
+    if (!act.length) return;
+    const done = act.every((p) => (a.kind === 'choice' ? a.picks.has(p.pid) : true) && (!G.settings.dice || a.rolls.has(p.pid)));
+    if (done && !a.allIn) {
+      a.allIn = true;
+      setTimeout(() => { if (G.ask === a && !a.closed) (a.kind === 'choice' ? closeChoice : closeRoll)(); }, 1400);
+    }
+  }
+
+  /* ---------------- flow ---------------- */
+
+  function openRoom() {
+    G.room = cleanCode($('#setCode').value) || newCode();
+    $('#setCode').value = G.room;
+    G.phase = 'lobby';
+    G.hp = G.hpMax = (G.caseDef && G.caseDef.hp) || 100;
+    saveJson(LS_SETTINGS, G.settings);
+    startRelay();
+    monitor.set({ rhythm: 'none' });
+    render();
+  }
+
+  function beginCase() {
+    if (!G.caseDef) return;
+    if (G.finished) for (const p of G.players.values()) { p.xp = 0; p.lastXp = 0; p.crits = 0; p.fumbles = 0; p.insp = false; }
+    G.finished = false;
+    G.hp = G.hpMax = G.caseDef.hp || 100;
+    G.stepIdx = -1;
+    G.res = null;
+    G.ask = null;
+    G.pendingNext = null;
+    monitor.set({ rhythm: 'none' });
+    advance();
+  }
+
+  function nextIdx(from, forcedId) {
+    if (forcedId) { const i = idxOf(forcedId); if (i >= 0) return i; }
+    const all = steps();
+    for (let i = from + 1; i < all.length; i++) if (!all[i].branch) return i;
+    return all.length;
+  }
+
+  function advance() {
+    const ni = nextIdx(G.stepIdx, G.pendingNext);
+    G.pendingNext = null;
+    if (ni >= steps().length) return finish(null);
+    gotoStep(ni);
+  }
+
+  function gotoStep(i) {
+    G.stepIdx = i;
+    G.res = null;
+    G.ask = null;
+    const st = step();
+    if (st.vitals) applyVitals(st.vitals);
+    if (st.hp) changeHp(st.hp);
+    if (st.type === 'scene') G.phase = 'scene';
+    else if (st.type === 'choice') openChoice(st);
+    else if (st.type === 'roll') openRoll(st, false);
+    else if (st.type === 'debrief') return finish(st);
+    saveGame();
+    render();
+    publish();
+  }
+
+  function applyVitals(v) {
+    if (v.rhythm === 'none') { monitor.set({ rhythm: 'none' }); return; }
+    const cur = monitor.snapshot();
+    if (cur.rhythm === 'none') monitor.set(Object.assign({}, v));
+    else monitor.transition(v, 5000);
+  }
+
+  function changeHp(d) {
+    if (!d) return;
+    G.hp = clamp(G.hp + d, 0, G.hpMax);
+    renderHp(d);
+  }
+
+  function inspiredSet() { return new Set([...G.players.values()].filter((p) => p.insp).map((p) => p.pid)); }
+
+  function openChoice(st) {
+    G.phase = 'choose';
+    const secs = st.time || G.settings.timer;
+    G.ask = {
+      sid: 'c' + (++G.askN) + '-' + st.id, kind: 'choice', opened: Date.now(), dur: secs ? secs * 1000 : 0,
+      picks: new Map(), rolls: new Map(), closed: false, insp: inspiredSet(), pre: null, preHp: G.hp,
+    };
+    startTimer();
+    botsAct();
+  }
+
+  function openRoll(spec, adhoc) {
+    G.phase = 'roll';
+    G.ask = {
+      sid: 'r' + (++G.askN), kind: 'roll', spec, adhoc: !!adhoc, opened: Date.now(), dur: 30000,
+      picks: new Map(), rolls: new Map(), closed: false, insp: inspiredSet(), preHp: G.hp,
+    };
+    startTimer();
+    botsAct();
+  }
+
+  function startTimer() {
+    clearInterval(timerInt);
+    timerInt = setInterval(() => {
+      const a = G.ask;
+      if (!a || a.closed) { clearInterval(timerInt); return; }
+      if (a.dur && Date.now() - a.opened >= a.dur) { (a.kind === 'choice' ? closeChoice : closeRoll)(); return; }
+      renderLive();
+    }, 250);
+  }
+
+  function rollFor(p, a, ab, dc, judgment) {
+    const got = a.rolls.get(p.pid);
+    const dice = got ? got.d : [R.d20()];
+    const raw = a.insp.has(p.pid) && dice.length > 1 ? Math.max(dice[0], dice[1]) : dice[0];
+    const bonus = R.mod(p.cls, ab) + (judgment || 0);
+    const r = R.resolve(raw, bonus, dc);
+    if (a.insp.has(p.pid)) p.insp = false;
+    if (r.crit === 'nat20') p.crits++;
+    if (r.crit === 'nat1') p.fumbles++;
+    return { raw, bonus, total: r.total, ok: r.ok, crit: r.crit, dice, auto: !got };
+  }
+
+  function closeChoice() {
+    const a = G.ask;
+    if (!a || a.closed || a.kind !== 'choice') return;
+    a.closed = true;
+    clearInterval(timerInt);
+    const st = step();
+    const counts = {};
+    st.options.forEach((o) => { counts[o.k] = 0; });
+    for (const pk of a.picks.values()) counts[pk.k]++;
+    const per = {};
+    for (const p of G.players.values()) p.lastXp = 0;
+    for (const [pid, pk] of a.picks) {
+      const p = G.players.get(pid);
+      if (!p) continue;
+      const o = opt(st, pk.k);
+      let x = { k: pk.k, grade: o.grade, ok: true, raw: null, bonus: null, total: null, crit: null, ab: o.check.ab, dc: o.check.dc };
+      if (G.settings.dice) Object.assign(x, rollFor(p, a, o.check.ab, o.check.dc, R.JUDGMENT_BONUS[o.grade]));
+      let xp = R.XP.choice[o.grade] || 0;
+      if (G.settings.dice && o.grade !== 'wrong') { if (x.ok) xp += R.XP.successBonus; if (x.crit === 'nat20') xp += R.XP.critBonus; }
+      x.xp = xp;
+      p.xp += xp;
+      p.lastXp = xp;
+      per[pid] = x;
+    }
+    let partyK;
+    if (G.settings.follow === 'best' || a.picks.size === 0) partyK = bestKeys(st)[0];
+    else partyK = plurality(counts, st);
+    G.res = { sid: a.sid, kind: 'choice', counts, per, party: null, effect: null, first: true };
+    resolveParty(partyK, null);
+    G.phase = 'reveal';
+    saveGame();
+    render();
+    publish();
+  }
+
+  function plurality(counts, st) {
+    const max = Math.max(...Object.values(counts));
+    const tied = st.options.filter((o) => counts[o.k] === max);
+    const rank = { wrong: 0, ok: 1, best: 2 };
+    tied.sort((x, y) => rank[x.grade] - rank[y.grade]); // a split vote plays out the riskier call
+    return tied[0].k;
+  }
+
+  // Decide the party's outcome for action k (group check) and apply it. force: true/false/null
+  function resolveParty(k, force) {
+    const st = step(), a = G.ask, res = G.res;
+    const o = opt(st, k);
+    if (!res.first) { // DM override: undo the previous outcome first
+      G.hp = res.preHp;
+      if (res.preVitals) monitor.set(res.preVitals);
+    } else {
+      res.preHp = G.hp;
+      res.preVitals = monitor.snapshot();
+      res.preVitals.sbp = res.preVitals.nibpS || res.preVitals.sbp;
+      res.preVitals.dbp = res.preVitals.nibpD || res.preVitals.dbp;
+    }
+    res.first = false;
+    let ok = true, passed = 0, total = 0, dmRoll = null;
+    if (G.settings.dice) {
+      const rollers = Object.values(res.per).filter((x) => x.k === k && x.raw != null);
+      if (rollers.length) {
+        passed = rollers.filter((x) => x.ok).length;
+        total = rollers.length;
+        ok = passed * 2 >= total;
+      } else {
+        const raw = R.d20();
+        const r = R.resolve(raw, R.JUDGMENT_BONUS[o.grade], o.check.dc);
+        dmRoll = { raw, bonus: R.JUDGMENT_BONUS[o.grade], total: r.total, ok: r.ok, crit: r.crit };
+        ok = r.ok; passed = ok ? 1 : 0; total = 1;
+      }
+    }
+    if (force === true || force === false) ok = force;
+    res.party = { k, ok, passed, total, dmRoll, ab: o.check.ab, dc: o.check.dc, forced: force === true || force === false };
+    const eff = (ok ? o.success : o.fail) || {};
+    res.effect = { note: eff.note || '', hp: eff.hp || 0, ecg: eff.ecg || null };
+    applyEffect(eff);
+    G.pendingNext = eff.next || null;
+  }
+
+  function applyEffect(eff) {
+    if (!eff) return;
+    const v = Object.assign({}, eff.vitals || {});
+    if (eff.pause) v.pause = eff.pause;
+    if (Object.keys(v).length) monitor.transition(v, 6000);
+    if (eff.hp) changeHp(eff.hp);
+  }
+
+  function closeRoll() {
+    const a = G.ask;
+    if (!a || a.closed || a.kind !== 'roll') return;
+    a.closed = true;
+    clearInterval(timerInt);
+    const spec = a.spec;
+    const per = {};
+    for (const p of G.players.values()) p.lastXp = 0;
+    const act = new Set(activePlayers().map((p) => p.pid));
+    for (const p of G.players.values()) {
+      if (G.kicked.has(p.pid)) continue;
+      if (!a.rolls.has(p.pid) && !act.has(p.pid)) continue;
+      const x = rollFor(p, a, spec.check.ab, spec.check.dc, 0);
+      x.ab = spec.check.ab;
+      x.dc = spec.check.dc;
+      x.xp = x.ok ? R.XP.rollPass + (x.crit === 'nat20' ? R.XP.rollCrit : 0) : 0;
+      p.xp += x.xp;
+      p.lastXp = x.xp;
+      per[p.pid] = x;
+    }
+    const xs = Object.values(per);
+    let ok, passed = 0, total = 0, dmRoll = null;
+    if (!G.settings.dice) { ok = true; }
+    else if (xs.length) { passed = xs.filter((x) => x.ok).length; total = xs.length; ok = passed * 2 >= total; }
+    else {
+      const raw = R.d20();
+      const r = R.resolve(raw, 0, spec.check.dc);
+      dmRoll = { raw, bonus: 0, total: r.total, ok: r.ok, crit: r.crit };
+      ok = r.ok; passed = ok ? 1 : 0; total = 1;
+    }
+    const eff = (ok ? spec.success : spec.fail) || {};
+    G.res = { sid: a.sid, kind: 'roll', per, party: { ok, passed, total, dmRoll, ab: spec.check.ab, dc: spec.check.dc }, effect: { note: eff.note || '', hp: eff.hp || 0 }, preHp: G.hp, first: false };
+    applyEffect(eff);
+    G.phase = 'rollReveal';
+    saveGame();
+    render();
+    publish();
+  }
+
+  function forceRoll(ok) {
+    const res = G.res;
+    if (!res || res.kind !== 'roll' || !res.party) return;
+    const spec = G.ask.spec;
+    G.hp = res.preHp;
+    res.party.ok = ok;
+    res.party.forced = true;
+    const eff = (ok ? spec.success : spec.fail) || {};
+    res.effect = { note: eff.note || '', hp: eff.hp || 0 };
+    applyEffect(eff);
+    render();
+    publish();
+  }
+
+  function next() {
+    switch (G.phase) {
+      case 'lobby': return beginCase();
+      case 'scene': return advance();
+      case 'choose': return closeChoice();
+      case 'roll': return closeRoll();
+      case 'reveal':
+        if (G.settings.board === 'each' && G.players.size) { G.phase = 'board'; render(); publish(); return; }
+        return advance();
+      case 'rollReveal':
+        if (G.adhoc) return resumeAdhoc();
+        return advance();
+      case 'board': return advance();
+      default: return undefined;
+    }
+  }
+
+  function finish(st) {
+    clearInterval(timerInt);
+    G.ask = null;
+    G.res = null;
+    if (!G.finished) {
+      G.finished = true;
+      if (G.hp > 0) for (const p of G.players.values()) { p.xp += R.XP.survive; p.lastXp = R.XP.survive; }
+    }
+    G.debrief = st || [...steps()].reverse().find((s) => s.type === 'debrief') || null;
+    G.phase = 'final';
+    saveGame();
+    render();
+    publish();
+  }
+
+  /* ---- DM ad hoc roll ---- */
+  function startAdhoc(ab, dc, text) {
+    if (!['scene', 'reveal', 'board', 'lobby', 'rollReveal'].includes(G.phase) || G.adhoc) return;
+    G.adhoc = { phase: G.phase, ask: G.ask, res: G.res, pendingNext: G.pendingNext };
+    openRoll({ title: text || `Roll for it`, prompt: '', check: { ab, dc } }, true);
+    render();
+    publish();
+  }
+  function resumeAdhoc() {
+    const s = G.adhoc;
+    G.adhoc = null;
+    G.phase = s.phase;
+    G.ask = s.ask;
+    G.res = s.res;
+    G.pendingNext = s.pendingNext;
+    render();
+    publish();
+  }
+
+  /* ---- bots ---- */
+  function addBots(n) {
+    const used = new Set([...G.players.values()].map((p) => p.name));
+    const names = BOT_NAMES.filter((x) => !used.has(x));
+    for (let i = 0; i < n && i < names.length; i++) {
+      const cls = R.CLASS_ORDER[Math.floor(Math.random() * R.CLASS_ORDER.length)];
+      addPlayer('bot-' + N.rid(6), names[i], cls, true);
+    }
+    render();
+    publish();
+  }
+
+  function botsAct() {
+    const a = G.ask;
+    const bots = [...G.players.values()].filter((p) => p.bot && !G.kicked.has(p.pid));
+    const st = step();
+    const maxDelay = a.dur ? Math.min(a.dur * 0.6, 14000) : 9000;
+    for (const b of bots) {
+      setTimeout(() => {
+        if (G.ask !== a || a.closed) return;
+        if (a.kind === 'choice') {
+          const r = Math.random();
+          const pool = (g) => st.options.filter((o) => o.grade === g);
+          let choices = r < 0.55 ? pool('best') : r < 0.75 ? pool('ok') : pool('wrong');
+          if (!choices.length) choices = st.options;
+          const k = choices[Math.floor(Math.random() * choices.length)].k;
+          onUp({ t: 'pick', pid: b.pid, sid: a.sid, k, mid: N.rid(10) });
+        }
+        if (G.settings.dice) {
+          setTimeout(() => {
+            if (G.ask !== a || a.closed) return;
+            const d = a.insp.has(b.pid) ? [R.d20(), R.d20()] : [R.d20()];
+            onUp({ t: 'roll', pid: b.pid, sid: a.sid, d, mid: N.rid(10) });
+          }, 600 + Math.random() * 1800);
+        }
+      }, 1200 + Math.random() * maxDelay);
+    }
+  }
+
+  /* ---- save / resume (survives an accidental refresh) ---- */
+  function saveGame() {
+    if (!G.room || !G.caseDef) return;
+    saveJson(LS_SAVE, {
+      ts: Date.now(), room: G.room, caseId: G.caseDef.id, stepIdx: G.stepIdx, hp: G.hp, finished: G.finished,
+      players: [...G.players.values()], kicked: [...G.kicked], settings: G.settings, phase: G.phase,
+      vit: monitor ? monitor.snapshot() : null,
+    });
+  }
+  function savedGame() {
+    const s = loadJson(LS_SAVE);
+    if (!s || Date.now() - s.ts > 4 * 3600 * 1000 || s.phase === 'setup') return null;
+    if (!CASES.find((c) => c.id === s.caseId)) return null;
+    return s;
+  }
+  function resumeGame(s) {
+    G.room = s.room;
+    G.caseDef = CASES.find((c) => c.id === s.caseId);
+    G.settings = Object.assign({}, DEFAULT_SETTINGS, s.settings || {});
+    G.players = new Map(s.players.map((p) => [p.pid, p]));
+    G.kicked = new Set(s.kicked || []);
+    G.hp = s.hp;
+    G.hpMax = G.caseDef.hp || 100;
+    G.finished = !!s.finished;
+    $('#setCode').value = G.room;
+    startRelay();
+    if (s.vit && s.vit.rhythm && s.vit.rhythm !== 'none') {
+      const v = Object.assign({}, s.vit);
+      if (v.nibpS) { v.sbp = v.nibpS; v.dbp = v.nibpD; }
+      monitor.set(v);
+    } else monitor.set({ rhythm: 'none' });
+    if (s.phase === 'lobby' || s.stepIdx < 0) { G.phase = 'lobby'; render(); publish(); return; }
+    if (s.phase === 'final') { finish(null); return; }
+    G.stepIdx = s.stepIdx;
+    const st = step();
+    // re-open the current step without re-applying its entry effects
+    if (st.type === 'choice') openChoice(st);
+    else if (st.type === 'roll') openRoll(st, false);
+    else G.phase = 'scene';
+    render();
+    publish();
+  }
+
+  /* ---------------- rendering ---------------- */
+
+  function show(id) {
+    for (const v of $$('.view')) v.hidden = v.id !== id;
+  }
+
+  function render() {
+    renderBar();
+    const key = G.phase + '|' + G.stepIdx + '|' + (G.ask ? G.ask.sid : '') + '|' + (G.res ? G.res.sid + ':' + (G.res.party && G.res.party.k) + ':' + (G.res.party && G.res.party.ok) + ':' + (G.res.party && G.res.party.forced) : '');
+    if (G.phase === 'setup') { show('vSetup'); renderSetup(); }
+    else if (G.phase === 'lobby') { show('vLobby'); renderLobby(); }
+    else if (G.phase === 'final') { show('vFinal'); if (key !== viewKey) renderFinal(); }
+    else {
+      show('vGame');
+      document.body.dataset.phase = G.phase;
+      if (key !== viewKey) renderGame();
+      renderHp(0);
+    }
+    viewKey = key;
+    renderLive();
+    renderControls();
+  }
+
+  function scheduleLive() {
+    if (liveTimer) return;
+    liveTimer = setTimeout(() => { liveTimer = null; if (G.phase === 'lobby') renderLobby(); renderLive(); renderBar(); }, 150);
+  }
+
+  function renderBar() {
+    $('#barTitle').textContent = G.caseDef && G.phase !== 'setup' ? G.caseDef.title : '';
+    const pr = progress();
+    $('#barStep').textContent = G.stepIdx >= 0 && !['setup', 'lobby', 'final'].includes(G.phase) ? `${pr.i} / ${pr.n}` : '';
+    const join = $('#barJoin');
+    join.hidden = !G.room || G.phase === 'setup';
+    join.textContent = G.room ? `Join · ${G.room}` : '';
+    const party = $('#barParty');
+    party.hidden = G.phase === 'setup';
+    party.textContent = `👥 ${ranked().length}`;
+    const dot = $('#barNet');
+    dot.className = 'dot ' + (G.phase === 'setup' ? 'idle' : G.net.ok > 0 ? 'ok' : G.net.local ? 'warn' : 'bad');
+    dot.title = G.net.list.length ? 'Relays: ' + G.net.list.map((x) => `${x.name} ${x.ok ? '✓' : '…'}`).join(' · ') : 'Not connected';
+    $('#btnRoll').hidden = G.phase === 'setup';
+    $('#btnRoll').disabled = !['scene', 'reveal', 'board', 'lobby', 'rollReveal'].includes(G.phase) || !!G.adhoc;
+  }
+
+  function renderControls() {
+    const btn = $('#btnNext');
+    const hint = $('#hint');
+    let label = 'Next ▸', h = '→ / Space / clicker', hide = false;
+    switch (G.phase) {
+      case 'setup': hide = true; h = ''; break;
+      case 'lobby': label = 'Begin the adventure ▸'; h = ranked().length ? `${ranked().length} in the party` : 'Waiting for players… or add a practice party'; break;
+      case 'scene': h = '→ / Space / clicker to continue · R to call for a roll'; break;
+      case 'choose': label = 'Close the vote ▸'; break;
+      case 'roll': label = 'Close the roll ▸'; break;
+      case 'reveal': label = G.settings.board === 'each' && G.players.size ? 'Standings ▸' : 'Continue ▸'; h = 'R to call for a roll'; break;
+      case 'board': h = '✧ grants Inspiration (advantage on the next roll)'; break;
+      case 'rollReveal': label = G.adhoc ? 'Back to the story ▸' : 'Continue ▸'; break;
+      case 'final': hide = true; h = ''; break;
+      default: break;
+    }
+    btn.hidden = hide;
+    btn.textContent = label;
+    hint.textContent = h;
+  }
+
+  /* ---- setup ---- */
+  function seg(name, opts, cur) {
+    return `<div class="seg" data-set="${name}">${opts.map(([v, l]) => `<button type="button" data-v="${esc(v)}" class="${String(cur) === String(v) ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
+  }
+  function settingsHtml() {
+    const s = G.settings;
+    return `
+      <label class="row"><span>Decision timer</span>${seg('timer', [[30, '30s'], [45, '45s'], [60, '60s'], [90, '90s'], [0, 'Off']], s.timer)}</label>
+      <label class="row"><span>Dice rolls</span>${seg('dice', [[true, 'On'], [false, 'Off']], s.dice)}</label>
+      <label class="row"><span>Patient follows</span>${seg('follow', [['party', 'Party vote'], ['best', 'Best answer']], s.follow)}</label>
+      <label class="row"><span>Standings</span>${seg('board', [['each', 'After each decision'], ['end', 'End only']], s.board)}</label>
+      <label class="row"><span>Rhythm name on monitor</span>${seg('showRhythm', [[false, 'Hide'], [true, 'Show']], s.showRhythm)}</label>
+      <label class="row"><span>Monitor beep</span>${seg('sound', [[false, 'Off'], [true, 'On']], s.sound)}</label>`;
+  }
+  function bindSettings(root) {
+    for (const sg of $$('.seg', root)) {
+      sg.addEventListener('click', (e) => {
+        const b = e.target.closest('button');
+        if (!b) return;
+        const k = sg.dataset.set;
+        let v = b.dataset.v;
+        if (v === 'true') v = true; else if (v === 'false') v = false; else if (/^\d+$/.test(v)) v = parseInt(v, 10);
+        G.settings[k] = v;
+        saveJson(LS_SETTINGS, G.settings);
+        $$('button', sg).forEach((x) => x.classList.toggle('on', x === b));
+        if (k === 'showRhythm') monitor.setShowRhythm(v);
+        if (k === 'sound') monitor.enableSound(v);
+        renderControls();
+        schedulePublish();
+      });
+    }
+  }
+
+  function renderSetup() {
+    const el = $('#vSetup');
+    if (el.dataset.built) return;
+    el.dataset.built = '1';
+    const saved = savedGame();
+    el.innerHTML = `
+      <div class="setup">
+        <div class="hero">
+          <div class="crest">${R.d20Svg(20, { fill: '#1b1f29' })}</div>
+          <div>
+            <h1>Case Room</h1>
+            <p>Live patient cases played like a tabletop RPG. You're the Dungeon Master. Your class joins on their phones, picks a move, and rolls for it.</p>
+          </div>
+        </div>
+        ${saved ? `<div class="resume"><span>Unfinished game in room <b>${esc(saved.room)}</b> · ${esc((CASES.find((c) => c.id === saved.caseId) || {}).title || '')}</span><button type="button" id="btnResume">Resume</button></div>` : ''}
+        <h2>Choose a case</h2>
+        <div class="cases">${CASES.map((c) => `
+          <button type="button" class="case ${G.caseDef && G.caseDef.id === c.id ? 'on' : ''}" data-id="${esc(c.id)}">
+            <span class="case-t">${esc(c.title)}</span>
+            <span class="case-s">${esc(c.tagline || '')}</span>
+            <span class="case-m">${esc(c.level || '')} · ~${esc(c.minutes || 15)} min · ${c.steps.filter((s) => s.type === 'choice' && !s.branch).length} decisions</span>
+          </button>`).join('')}
+        </div>
+        <h2>Settings</h2>
+        <div class="settings">
+          <label class="row"><span>Room code</span><span class="code-in"><input id="setCode" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Auto"><button type="button" id="btnNewCode">New</button></span></label>
+          ${settingsHtml()}
+        </div>
+        <button type="button" class="primary big" id="btnOpen">Open the room</button>
+        <p class="fine">Teaching simulation. Follow your local protocols.</p>
+      </div>`;
+    const fixed = cleanCode(params.get('r'));
+    $('#setCode').value = G.room || fixed || newCode();
+    $('#btnNewCode').onclick = () => { $('#setCode').value = newCode(); };
+    $('#btnOpen').onclick = () => { monitor.enableSound(G.settings.sound); openRoom(); };
+    if (saved) $('#btnResume').onclick = () => { monitor.enableSound(G.settings.sound); resumeGame(saved); };
+    for (const b of $$('.case', el)) b.onclick = () => { G.caseDef = CASES.find((c) => c.id === b.dataset.id); $$('.case', el).forEach((x) => x.classList.toggle('on', x === b)); };
+    bindSettings(el);
+  }
+
+  /* ---- lobby ---- */
+  function renderLobby() {
+    const el = $('#vLobby');
+    if (el.dataset.room !== G.room) {
+      el.dataset.room = G.room;
+      el.innerHTML = `
+        <div class="lobby">
+          <div class="join">
+            <div class="kicker">Gather your party</div>
+            <div class="qr">${qrSvg(joinUrl())}</div>
+            <div class="join-url">Scan, or go to <b>${esc(joinDisplay())}</b></div>
+            <div class="code-big"><span>Room</span><b>${esc(G.room)}</b></div>
+          </div>
+          <div class="roster">
+            <div class="roster-h"><h2>${esc(G.caseDef ? G.caseDef.title : '')}</h2><span class="muted">${esc(G.caseDef ? G.caseDef.tagline : '')}</span></div>
+            <div class="party" id="lobbyParty"></div>
+            <div class="lobby-actions">
+              <button type="button" id="btnBots" class="ghost">+ Practice party (6 bots)</button>
+              <button type="button" id="btnBack" class="ghost">Change case or settings</button>
+            </div>
+          </div>
+        </div>`;
+      $('#btnBots').onclick = () => addBots(6);
+      $('#btnBack').onclick = () => {
+        G.phase = 'setup';
+        if (relay) { relay.publishState(Object.assign(buildState(), { phase: 'setup' })); }
+        $('#vSetup').dataset.built = '';
+        render();
+      };
+    }
+    const list = ranked();
+    $('#lobbyParty').innerHTML = list.length ? list.map((p) => `
+      <div class="pc" data-pid="${esc(p.pid)}">
+        <span class="pc-i">${R.CLASSES[p.cls].icon}</span>
+        <span class="pc-n">${esc(p.name)}</span>
+        <span class="pc-c">${esc(R.CLASSES[p.cls].name)}${p.bot ? ' · bot' : ''}</span>
+        <button type="button" class="pc-x" title="Remove from room">✕</button>
+      </div>`).join('') : '<div class="empty">No one yet. Students scan the code to join and pick a class.</div>';
+    for (const x of $$('.pc-x', $('#lobbyParty'))) {
+      x.onclick = () => { const pid = x.closest('.pc').dataset.pid; G.kicked.add(pid); G.players.delete(pid); renderLobby(); renderControls(); renderBar(); publish(); };
+    }
+  }
+
+  /* ---- game ---- */
+  function kicker(st) {
+    if (G.phase === 'roll' && G.ask && G.ask.adhoc) return 'The DM calls for a roll';
+    const t = { scene: 'Scene', choice: 'Decision', roll: 'Group check', debrief: 'Debrief' }[st.type] || '';
+    return t;
+  }
+
+  function renderGame() {
+    const left = $('#left');
+    const st = step();
+    const a = G.ask;
+    document.body.classList.toggle('wide-ecg', !!(st && st.ecg && G.phase === 'choose'));
+    if (G.phase === 'scene') {
+      left.innerHTML = `
+        <div class="kicker">${esc(kicker(st))}</div>
+        <h1 class="title">${esc(st.title)}</h1>
+        <div class="readaloud">${esc(st.text)}</div>`;
+    } else if (G.phase === 'choose') {
+      const opts = `<div class="opts">${st.options.map((o) => `
+          <div class="opt k${o.k}"><span class="key">${o.k}</span><span class="txt">${esc(o.text)}</span></div>`).join('')}
+        </div>`;
+      const prog = `<div class="progress">
+          <div class="timer"><div class="fill" id="tFill"></div></div>
+          <div class="pcount" id="pCount"></div>
+        </div>
+        <div class="tokens" id="tokens"></div>`;
+      left.innerHTML = `
+        <div class="kicker">${esc(kicker(st))}</div>
+        <h1 class="title">${esc(st.title)}</h1>
+        <p class="prompt">${esc(st.prompt)}</p>
+        ${st.ecg ? `<div class="ecg-q"><canvas class="ecg12" id="ecgMain"></canvas><div class="ecg-side">${opts}${prog}</div></div>` : opts + prog}`;
+      if (st.ecg) drawEcg($('#ecgMain'), st.ecg);
+    } else if (G.phase === 'roll') {
+      const sp = a.spec;
+      left.innerHTML = `
+        <div class="kicker">${esc(kicker(st))}</div>
+        <h1 class="title">${esc(sp.title || st.title)}</h1>
+        ${sp.prompt ? `<p class="prompt">${esc(sp.prompt)}</p>` : ''}
+        <div class="callroll">
+          <div class="die-big">${R.d20Svg('?')}</div>
+          <div><div class="ab-big">${esc(R.ABILITIES[sp.check.ab].name)} check</div><div class="muted">${esc(R.ABILITIES[sp.check.ab].ems)} · everyone rolls on their phone</div></div>
+        </div>
+        <div class="progress">
+          <div class="timer"><div class="fill" id="tFill"></div></div>
+          <div class="pcount" id="pCount"></div>
+        </div>
+        <div class="tokens" id="tokens"></div>`;
+    } else if (G.phase === 'reveal') {
+      renderReveal(left, st);
+    } else if (G.phase === 'rollReveal') {
+      renderRollReveal(left, st);
+    } else if (G.phase === 'board') {
+      renderBoard(left);
+    }
+  }
+
+  function drawEcg(canvas, spec) {
+    requestAnimationFrame(() => { try { W.render12(canvas, spec); } catch (e) { console.error(e); } });
+  }
+
+  function diceChips(per) {
+    const rows = Object.entries(per).map(([pid, x]) => ({ p: G.players.get(pid), x })).filter((r) => r.p && r.x.raw != null);
+    rows.sort((u, v) => (v.x.crit === 'nat20') - (u.x.crit === 'nat20') || v.x.total - u.x.total);
+    const max = 12;
+    const html = rows.slice(0, max).map(({ p, x }) => {
+      const cls = x.crit === 'nat20' ? 'crit' : x.crit === 'nat1' ? 'fumble' : x.ok ? 'pass' : 'miss';
+      return `<div class="chip-die ${cls}" title="${esc(p.name)}">${R.d20Svg(x.raw, { fill: cls === 'crit' ? '#3a2c0a' : cls === 'fumble' ? '#3a0d12' : '#1d222c', stroke: cls === 'pass' || cls === 'crit' ? '#d9a441' : '#7b2430' })}<span class="cd-n">${esc(p.name)}</span><span class="cd-t">${R.fmtMod(x.bonus)} → ${x.total}</span></div>`;
+    }).join('');
+    return html + (rows.length > max ? `<div class="chip-more">+${rows.length - max} more</div>` : '');
+  }
+
+  function critCallouts(per) {
+    const crits = [], fumbles = [];
+    for (const [pid, x] of Object.entries(per)) {
+      const p = G.players.get(pid);
+      if (!p) continue;
+      if (x.crit === 'nat20') crits.push(p.name);
+      if (x.crit === 'nat1') fumbles.push(p.name);
+    }
+    let h = '';
+    if (crits.length) h += `<div class="callout crit">✦ Natural 20: ${esc(crits.join(', '))}</div>`;
+    if (fumbles.length) h += `<div class="callout fumble">✖ Natural 1: ${esc(fumbles.join(', '))}</div>`;
+    return h;
+  }
+
+  function tone(hp, ok) { return hp < 0 ? 'no' : hp > 0 ? 'ok' : ok ? 'neutral' : 'neutral'; }
+
+  function renderReveal(left, st) {
+    const r = G.res;
+    const total = Object.values(r.counts).reduce((x, y) => x + y, 0);
+    const best = bestKeys(st);
+    const pk = r.party.k;
+    const o = opt(st, pk);
+    const partyPer = {};
+    for (const [pid, x] of Object.entries(r.per)) if (x.k === pk) partyPer[pid] = x;
+    const ok = r.party.ok;
+    const dm = r.party.dmRoll;
+    const who = !total ? 'No votes. The DM plays out' : G.settings.follow === 'best' ? 'The DM plays out' : 'The party chose';
+    left.innerHTML = `
+      <div class="kicker">${esc(kicker(st))} · result</div>
+      <h1 class="title sm">${esc(st.title)}</h1>
+      <div class="rv-top">
+        <div class="votes">${st.options.map((x) => {
+          const c = r.counts[x.k] || 0;
+          const pct = total ? Math.round((100 * c) / total) : 0;
+          return `<button type="button" class="vote k${x.k} ${x.k === pk ? 'party' : ''} g-${x.grade}" data-k="${x.k}" title="Play out ${x.k} instead">
+            <span class="key">${x.k}</span>
+            <span class="vbar"><span class="vfill" style="width:${pct}%"></span><span class="vtxt">${esc(x.text)}</span></span>
+            <span class="vnum">${c}</span>
+            <span class="vgrade">${x.grade === 'best' ? '✓' : x.grade === 'ok' ? '~' : '✗'}</span>
+          </button>`;
+        }).join('')}</div>
+        <div class="check ${ok ? 'ok' : 'no'}">
+          <div class="check-l">${who} <b>${esc(pk)}</b>${G.settings.dice ? `<br><span class="muted">${esc(R.ABILITIES[r.party.ab].name)} check · DC ${r.party.dc}</span>` : ''}</div>
+          <div class="verdict">${ok ? 'SUCCESS' : 'FAILURE'}${G.settings.dice && !dm ? ` <small>${r.party.passed}/${r.party.total} passed</small>` : ''}${r.party.forced ? ' <small>DM ruling</small>' : ''}</div>
+          ${o.grade === 'wrong' ? `<div class="harm">${ok ? 'They pulled off a harmful call.' : 'They fumbled a harmful call. Lucky patient.'}</div>` : ''}
+          ${G.settings.dice ? `<div class="dice-row">${dm ? `<div class="chip-die ${dm.ok ? 'pass' : 'miss'}">${R.d20Svg(dm.raw)}<span class="cd-n">DM rolls</span><span class="cd-t">${R.fmtMod(dm.bonus)} → ${dm.total}</span></div>` : diceChips(partyPer)}</div>` : ''}
+          ${critCallouts(r.per)}
+        </div>
+      </div>
+      <div class="outcome ${tone(r.effect.hp, ok)}">
+        <div class="outcome-t">${esc(o.text)}</div>
+        <p>${esc(r.effect.note)}</p>
+        ${r.effect.hp ? `<span class="hpd ${r.effect.hp > 0 ? 'up' : 'down'}">${r.effect.hp > 0 ? '+' : ''}${r.effect.hp} HP</span>` : ''}
+        ${r.effect.ecg ? '<canvas class="ecg-strip" id="ecgEff"></canvas>' : ''}
+      </div>
+      <div class="lesson"><div class="lesson-h">The lesson · best call: ${best.map(esc).join(', ')}</div><p>${esc(st.teach || '')}</p></div>
+      <div class="dm-tools"><span class="muted">DM:</span><button type="button" data-force="1">Rule success</button><button type="button" data-force="0">Rule failure</button>${st.ecg ? '<button type="button" id="btnShowEcg">Show the 12-lead</button>' : ''}<span class="muted">· Tap a bar to play out a different action</span></div>
+      ${st.ecg ? '<canvas class="ecg12 small" id="ecgMain" hidden></canvas>' : ''}`;
+    if (r.effect.ecg) drawEcg($('#ecgEff'), r.effect.ecg);
+    if (st.ecg) {
+      $('#btnShowEcg').onclick = () => {
+        const c = $('#ecgMain');
+        c.hidden = !c.hidden;
+        $('#btnShowEcg').textContent = c.hidden ? 'Show the 12-lead' : 'Hide the 12-lead';
+        if (!c.hidden) { drawEcg(c, st.ecg); setTimeout(() => c.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60); }
+      };
+    }
+    for (const b of $$('.vote', left)) b.onclick = () => { resolveParty(b.dataset.k, null); render(); publish(); };
+    for (const b of $$('[data-force]', left)) b.onclick = () => { resolveParty(G.res.party.k, b.dataset.force === '1'); render(); publish(); };
+  }
+
+  function renderRollReveal(left, st) {
+    const r = G.res;
+    const sp = G.ask.spec;
+    const ok = r.party.ok;
+    const dm = r.party.dmRoll;
+    left.innerHTML = `
+      <div class="kicker">${esc(G.ask.adhoc ? 'The DM calls for a roll' : kicker(st))} · result</div>
+      <h1 class="title">${esc(sp.title || st.title)}</h1>
+      <div class="check wide ${ok ? 'ok' : 'no'}">
+        <div class="check-h">
+          <span class="check-l">${esc(R.ABILITIES[sp.check.ab].name)} check · DC ${sp.check.dc}</span>
+          <span class="verdict">${ok ? 'SUCCESS' : 'FAILURE'}${G.settings.dice && !dm ? ` <small>${r.party.passed}/${r.party.total} passed</small>` : ''}${r.party.forced ? ' <small>DM ruling</small>' : ''}</span>
+        </div>
+        <div class="dice-row">${dm ? `<div class="chip-die ${dm.ok ? 'pass' : 'miss'}">${R.d20Svg(dm.raw)}<span class="cd-n">DM rolls</span><span class="cd-t">${dm.total}</span></div>` : diceChips(r.per)}</div>
+        ${critCallouts(r.per)}
+      </div>
+      ${r.effect.note ? `<div class="outcome ${tone(r.effect.hp, ok)}"><p>${esc(r.effect.note)}</p>${r.effect.hp ? `<span class="hpd ${r.effect.hp > 0 ? 'up' : 'down'}">${r.effect.hp > 0 ? '+' : ''}${r.effect.hp} HP</span>` : ''}</div>` : ''}
+      <div class="dm-tools"><span class="muted">DM:</span><button type="button" data-force="1">Rule success</button><button type="button" data-force="0">Rule failure</button></div>`;
+    for (const b of $$('[data-force]', left)) b.onclick = () => forceRoll(b.dataset.force === '1');
+  }
+
+  function renderBoard(left) {
+    const rk = ranked();
+    left.innerHTML = `
+      <div class="kicker">Party standings</div>
+      <h1 class="title">Who's carrying the bag</h1>
+      <ol class="board">${rk.slice(0, 8).map((p, i) => {
+        const lv = R.levelFor(p.xp);
+        return `<li class="${p.insp ? 'insp' : ''}" data-pid="${esc(p.pid)}">
+          <span class="b-rank">${i + 1}</span>
+          <span class="b-icon">${R.CLASSES[p.cls].icon}</span>
+          <span class="b-name">${esc(p.name)}<small>Lv ${lv.level} ${esc(lv.title)} · ${esc(R.CLASSES[p.cls].name)}</small></span>
+          <span class="b-delta">${p.lastXp ? '+' + p.lastXp : ''}</span>
+          <span class="b-xp">${p.xp} XP</span>
+          <button type="button" class="b-insp" title="Grant Inspiration: advantage on their next roll">${p.insp ? '✨' : '✧'}</button>
+        </li>`;
+      }).join('')}</ol>
+      ${rk.length > 8 ? `<p class="muted">+${rk.length - 8} more adventurers</p>` : ''}
+      <p class="muted small">✧ Grant Inspiration for a great answer out loud. They roll with advantage next time.</p>`;
+    for (const b of $$('.b-insp', left)) {
+      b.onclick = () => {
+        const p = G.players.get(b.closest('li').dataset.pid);
+        if (!p) return;
+        p.insp = !p.insp;
+        viewKey = '';
+        render();
+        publish();
+      };
+    }
+  }
+
+  function renderLive() {
+    const a = G.ask;
+    if ((G.phase === 'choose' || G.phase === 'roll') && a) {
+      const fill = $('#tFill');
+      if (fill) {
+        if (a.dur) {
+          const p = clamp(1 - (Date.now() - a.opened) / a.dur, 0, 1);
+          fill.style.width = (p * 100).toFixed(1) + '%';
+          fill.classList.toggle('low', p < 0.2);
+        } else fill.style.width = '100%';
+      }
+      const act = ranked().length;
+      const pc = $('#pCount');
+      if (pc) {
+        const secs = a.dur ? Math.ceil(Math.max(0, a.dur - (Date.now() - a.opened)) / 1000) + 's · ' : '';
+        pc.textContent = a.kind === 'choice'
+          ? `${secs}${a.picks.size} / ${act} chose${G.settings.dice ? ` · ${a.rolls.size} rolled` : ''}`
+          : `${secs}${a.rolls.size} / ${act} rolled`;
+      }
+      const tk = $('#tokens');
+      if (tk) {
+        const ids = a.kind === 'choice' ? [...a.picks.keys()] : [...a.rolls.keys()];
+        const html = ids.map((pid) => G.players.get(pid)).filter(Boolean).map((p) => `<span class="tok ${a.rolls.has(p.pid) ? 'rolled' : ''}">${R.CLASSES[p.cls].icon} ${esc(p.name)}</span>`).join('');
+        if (tk.dataset.h !== html) { tk.innerHTML = html; tk.dataset.h = html; }
+      }
+    }
+  }
+
+  let hpShown = null;
+  function renderHp(delta) {
+    const el = $('#hp');
+    const pct = G.hpMax ? (100 * G.hp) / G.hpMax : 0;
+    el.querySelector('.hp-fill').style.width = pct + '%';
+    el.querySelector('.hp-num').textContent = `${Math.round(G.hp)} / ${G.hpMax}`;
+    el.classList.toggle('low', pct <= 30);
+    el.classList.toggle('dead', G.hp <= 0);
+    if (delta) {
+      el.classList.remove('hit', 'heal');
+      void el.offsetWidth;
+      el.classList.add(delta < 0 ? 'hit' : 'heal');
+      const f = document.createElement('span');
+      f.className = 'hp-float ' + (delta < 0 ? 'down' : 'up');
+      f.textContent = (delta > 0 ? '+' : '') + delta;
+      el.appendChild(f);
+      setTimeout(() => f.remove(), 1800);
+    }
+    hpShown = G.hp;
+  }
+
+  /* ---- final ---- */
+  function renderFinal() {
+    const el = $('#vFinal');
+    const d = G.debrief || {};
+    const rk = ranked();
+    const win = G.hp > 0;
+    const mvp = rk[0];
+    el.innerHTML = `
+      <div class="final">
+        <div class="final-l">
+          <div class="kicker">Debrief</div>
+          <h1 class="title">${esc(d.title || 'The End')}</h1>
+          <div class="readaloud">${esc(d.text || '')}</div>
+          ${d.points ? `<ul class="points">${d.points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+          <div class="fate ${win ? 'win' : 'lose'}"><b>${win ? 'The patient survived' : 'The patient crashed'}</b> · ${Math.round(G.hp)} / ${G.hpMax} HP<p>${esc(win ? d.win || '' : d.lose || '')}</p></div>
+        </div>
+        <div class="final-r">
+          <h2>Final standings</h2>
+          ${mvp ? `<div class="mvp">${R.CLASSES[mvp.cls].icon} <b>${esc(mvp.name)}</b><span>MVP · ${mvp.xp} XP · Lv ${R.levelFor(mvp.xp).level} ${esc(R.levelFor(mvp.xp).title)}</span></div>` : ''}
+          <ol class="board compact">${rk.slice(0, 8).map((p, i) => `<li><span class="b-rank">${i + 1}</span><span class="b-icon">${R.CLASSES[p.cls].icon}</span><span class="b-name">${esc(p.name)}<small>${p.crits ? `✦${p.crits} ` : ''}${p.fumbles ? `✖${p.fumbles}` : ''}</small></span><span class="b-xp">${p.xp} XP</span></li>`).join('')}</ol>
+          ${win ? `<p class="muted small">Everyone earned +${R.XP.survive} XP for keeping him alive.</p>` : ''}
+          <div class="final-actions">
+            <button type="button" class="primary" id="btnAgain">Play again, same party</button>
+            <button type="button" class="ghost" id="btnSetup">Back to setup</button>
+          </div>
+        </div>
+      </div>`;
+    $('#btnAgain').onclick = () => {
+      for (const p of G.players.values()) { p.xp = 0; p.lastXp = 0; p.crits = 0; p.fumbles = 0; p.insp = false; }
+      G.phase = 'lobby';
+      viewKey = '';
+      render();
+      publish();
+    };
+    $('#btnSetup').onclick = () => {
+      G.phase = 'setup';
+      publish();
+      $('#vSetup').dataset.built = '';
+      viewKey = '';
+      render();
+    };
+  }
+
+  /* ---------------- modals & keys ---------------- */
+
+  function openModal(id) { $(id).hidden = false; }
+  function closeModal(id) { $(id).hidden = true; }
+
+  function buildRollModal() {
+    const m = $('#mRoll');
+    m.innerHTML = `
+      <div class="modal-card">
+        <h2>Call for a roll</h2>
+        <p class="muted">Everyone rolls on their phone. At least half must pass.</p>
+        <div class="ab-grid">${R.AB_ORDER.map((ab) => `<button type="button" data-ab="${ab}"><b>${ab}</b><span>${esc(R.ABILITIES[ab].ems)}</span></button>`).join('')}</div>
+        <div class="row"><span>DC</span><div class="seg" id="dcSeg">${[5, 8, 10, 12, 15, 18, 20].map((d) => `<button type="button" data-dc="${d}" class="${d === 12 ? 'on' : ''}">${d}</button>`).join('')}</div></div>
+        <input id="rollText" placeholder="What are they attempting? (e.g., Carry him down the stairs)" maxlength="90">
+        <div class="modal-actions"><button type="button" class="ghost" data-close>Cancel</button><button type="button" class="primary" id="btnCall">Roll!</button></div>
+      </div>`;
+    let ab = 'STR', dc = 12;
+    const abBtns = $$('[data-ab]', m);
+    abBtns[0].classList.add('on');
+    abBtns.forEach((b) => { b.onclick = () => { ab = b.dataset.ab; abBtns.forEach((x) => x.classList.toggle('on', x === b)); }; });
+    $$('[data-dc]', m).forEach((b) => { b.onclick = () => { dc = parseInt(b.dataset.dc, 10); $$('[data-dc]', m).forEach((x) => x.classList.toggle('on', x === b)); }; });
+    $('[data-close]', m).onclick = () => closeModal('#mRoll');
+    $('#btnCall').onclick = () => { closeModal('#mRoll'); startAdhoc(ab, dc, $('#rollText').value.trim()); $('#rollText').value = ''; };
+  }
+
+  function buildSettingsModal() {
+    const m = $('#mSettings');
+    m.innerHTML = `
+      <div class="modal-card">
+        <h2>Settings</h2>
+        <div class="settings">${settingsHtml()}</div>
+        <p class="muted small">Join link: ${esc(G.room ? joinUrl() : 'open a room first')}</p>
+        <div class="modal-actions"><button type="button" class="primary" data-close>Done</button></div>
+      </div>`;
+    bindSettings(m);
+    $('[data-close]', m).onclick = () => closeModal('#mSettings');
+  }
+
+  function bindKeys() {
+    document.addEventListener('keydown', (e) => {
+      if (e.target.closest('input, textarea')) return;
+      if (!$('#mRoll').hidden || !$('#mSettings').hidden) { if (e.key === 'Escape') { closeModal('#mRoll'); closeModal('#mSettings'); } return; }
+      if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(e.key)) {
+        if (G.phase === 'setup' || G.phase === 'final') return;
+        e.preventDefault();
+        next();
+      } else if (e.key === 'r' || e.key === 'R') { if (!$('#btnRoll').disabled && !$('#btnRoll').hidden) { buildRollModal(); openModal('#mRoll'); } }
+      else if (e.key === 'f' || e.key === 'F') toggleFull();
+      else if (e.key === 'm' || e.key === 'M') { G.settings.sound = !G.settings.sound; monitor.enableSound(G.settings.sound); }
+    });
+  }
+
+  function toggleFull() {
+    const d = document;
+    if (d.fullscreenElement) d.exitFullscreen && d.exitFullscreen();
+    else if (d.documentElement.requestFullscreen) d.documentElement.requestFullscreen().catch(() => {});
+  }
+
+  async function keepAwake() {
+    try { if (navigator.wakeLock) { G.wake = await navigator.wakeLock.request('screen'); } } catch (e) { /* not supported */ }
+  }
+
+  /* ---------------- boot ---------------- */
+  function boot() {
+    monitor = new window.CRMonitor.Monitor($('#monitor'), { showRhythm: G.settings.showRhythm });
+    const hpEl = $('#hp');
+    hpEl.innerHTML = '<span class="hp-l">♥ Patient</span><div class="hp-track"><div class="hp-fill"></div></div><span class="hp-num"></span>';
+    $('#btnNext').onclick = () => next();
+    $('#btnFull').onclick = toggleFull;
+    $('#btnRoll').onclick = () => { buildRollModal(); openModal('#mRoll'); };
+    $('#btnSettings').onclick = () => { buildSettingsModal(); openModal('#mSettings'); };
+    for (const m of $$('.modal')) m.addEventListener('click', (e) => { if (e.target === m) m.hidden = true; });
+    bindKeys();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
+    keepAwake();
+    render();
+    window.CRHost = { G, next, addBots, startAdhoc, closeChoice, closeRoll }; // handy for testing
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();

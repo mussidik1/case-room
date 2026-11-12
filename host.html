@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0d12">
+<title>Case Room · DM Screen</title>
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Cinzel:wght@600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="css/host.css">
+</head>
+<body class="host">
+<header class="bar">
+  <div class="brand"><span class="brand-d20" aria-hidden="true">⬢</span>CASE ROOM <span class="case-title" id="barTitle"></span></div>
+  <div class="bar-mid" id="barStep"></div>
+  <div class="bar-right">
+    <span class="chip join" id="barJoin" hidden></span>
+    <span class="chip people" id="barParty" hidden></span>
+    <span class="dot idle" id="barNet" title="Connection"></span>
+    <button type="button" class="icon" id="btnRoll" title="Call for a roll (R)" hidden>🎲</button>
+    <button type="button" class="icon" id="btnSettings" title="Settings">⚙︎</button>
+    <button type="button" class="icon" id="btnFull" title="Full screen (F)">⛶</button>
+  </div>
+</header>
+<main>
+  <section id="vSetup" class="view"></section>
+  <section id="vLobby" class="view" hidden></section>
+  <section id="vGame" class="view" hidden>
+    <div class="stage-left" id="left"></div>
+    <div class="stage-right"><div class="hp" id="hp"></div><div id="monitor"></div></div>
+  </section>
+  <section id="vFinal" class="view" hidden></section>
+</main>
+<footer class="ctl"><span class="hint" id="hint"></span><button type="button" class="next" id="btnNext">Next ▸</button></footer>
+<div class="modal" id="mRoll" hidden></div>
+<div class="modal" id="mSettings" hidden></div>
+<script src="vendor/mqtt.min.js"></script>
+<script src="vendor/qrcode.js"></script>
+<script src="js/rules.js"></script>
+<script src="js/ecg.js"></script>
+<script src="js/monitor.js"></script>
+<script src="js/net.js"></script>
+<script src="js/cases/kitchen-table.js"></script>
+<script src="js/host.js"></script>
+</body>
+</html>
