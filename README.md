@@ -11,10 +11,10 @@ No accounts, no app installs, no server to run.
 
 | Case | Topic | Level | Time |
 |---|---|---|---|
-| Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement, the nitro trap, complete heart block, pacing | ALS | ~20 min |
-| Down on Route 40 | Motorcycle crash: tourniquet, pelvic binder, hemorrhagic shock, low-titer O whole blood, TXA | ALS | ~20 min |
-| Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, cortical signs, leave the pressure alone, destination | BLS/ALS | ~18 min |
-| The Birthday Party | Pediatric anaphylaxis: shark-fin capnography, IM epinephrine, repeat dosing, biphasic reactions | BLS/ALS | ~14 min |
+| Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement: read the 12-lead, V4R, the nitro trap, complete heart block, pacing | ALS | ~20 min |
+| Down on Route 40 | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
+| Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, AF as the clot source, LAMS scoring, localization, the penumbra, airway after vomiting, destination | BLS/ALS | ~24 min |
+| The Birthday Party | Pediatric anaphylaxis: shark-fin capnography, IM epinephrine, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
 
 ## Running a game
 
