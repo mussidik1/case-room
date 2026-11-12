@@ -38,6 +38,7 @@
       this.role = o.role; // 'host' | 'player'
       this.onState = o.onState || (() => {});
       this.onUp = o.onUp || (() => {});
+      this.onPeer = o.onPeer || (() => {}); // host: state published by another DM screen on this code
       this.onStatus = o.onStatus || (() => {});
       this.onConnect = o.onConnect || (() => {});
       this.topicS = `${PREFIX}/${this.room}/s`;
@@ -55,7 +56,7 @@
         this.bc.onmessage = (ev) => {
           const d = ev.data || {};
           if (d.ch === 'hello') { if (this.role === 'host' && this.lastState) this.bc.postMessage({ ch: 's', m: this.lastState }); return; }
-          this.inbound(d.ch, d.m, 'local');
+          this.inbound(d.ch, d.m, 'local', false);
         };
         if (this.role === 'player') this.bc.postMessage({ ch: 'hello' });
       } catch (e) { this.bc = null; }
@@ -74,7 +75,8 @@
         entry.client = c;
         c.on('connect', () => {
           entry.ok = true;
-          c.subscribe(this.role === 'host' ? this.topicU : this.topicS, { qos: 1 });
+          // the host also listens on the state topic, so it can tell when another DM screen is live on the same code
+          c.subscribe(this.role === 'host' ? [this.topicU, this.topicS] : this.topicS, { qos: 1 });
           if (this.role === 'host' && this.lastJson) c.publish(this.topicS, this.lastJson, { qos: 1, retain: true });
           this.status();
           this.onConnect(entry);
@@ -83,21 +85,23 @@
         c.on('close', down);
         c.on('offline', down);
         c.on('error', () => {});
-        c.on('message', (topic, payload) => {
+        c.on('message', (topic, payload, packet) => {
           if (!payload || !payload.length) return;
           let m;
           try { m = JSON.parse(typeof payload === 'string' ? payload : new TextDecoder().decode(payload)); } catch (e) { return; }
-          this.inbound(topic === this.topicS ? 's' : 'u', m, entry.name);
+          this.inbound(topic === this.topicS ? 's' : 'u', m, entry.name, !!(packet && packet.retain));
         });
       }
       this.status();
       return this;
     }
 
-    inbound(ch, m, via) {
+    inbound(ch, m, via, retained) {
       if (!m || typeof m !== 'object') return;
-      if (ch === 's' && this.role === 'player') this.onState(m, via);
-      else if (ch === 'u' && this.role === 'host') {
+      if (ch === 's') {
+        if (this.role === 'player') this.onState(m, via);
+        else this.onPeer(m, via, !!retained);
+      } else if (ch === 'u' && this.role === 'host') {
         if (!m.mid || this.seen.has(m.mid)) return;
         this.seen.set(m.mid, Date.now());
         if (this.seen.size > 5000) {

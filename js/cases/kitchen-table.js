@@ -8,7 +8,9 @@
                The party's action is the most popular pick; its group check decides the outcome.
      debrief — wrap-up.
    Effects (success / fail): note, hp (+/-), vitals (partial), next (step id), pause (sec of no QRS), ecg (strip to show)
-   grade: best | ok | wrong  — drives XP and a hidden judgment bonus on the roll. */
+   grade: best | ok | wrong  — drives XP and a hidden judgment bonus on the roll.
+   Options are shuffled each game, so write them in any order, never refer to one by its letter,
+   and keep them similar in length and form. Step titles show during the vote: don't hint at the answer. */
 (function () {
   const start = { rhythm: 'sinus', hr: 56, st: 0.2, sbp: 100, dbp: 64, spo2: 96, rr: 20, etco2: 34 };
 
@@ -62,7 +64,7 @@
         prompt: 'Here\'s your 12-lead. What does it show?',
         ecg: { preset: 'inferiorRV', layout: '12' },
         options: [
-          { k: 'A', text: 'Inferior STEMI with reciprocal changes in I and aVL', grade: 'best', check: { ab: 'INT', dc: 10 },
+          { k: 'A', text: 'Inferior STEMI', grade: 'best', check: { ab: 'INT', dc: 10 },
             success: { note: 'Called it. Your partner transmits the ECG and the cath lab gets the page.', hp: 5 },
             fail: { note: 'You see it but fumble the radio call. The hospital asks you to re-send.', hp: -5 } },
           { k: 'B', text: 'Anterior STEMI', grade: 'wrong', check: { ab: 'INT', dc: 10 },
@@ -71,14 +73,14 @@
           { k: 'C', text: 'Pericarditis', grade: 'wrong', check: { ab: 'INT', dc: 10 },
             success: { note: 'You talk yourself into pericarditis and hold the alert. Fifteen minutes later the repeat looks worse.', hp: -15 },
             fail: { note: 'Something nags you. Pericarditis doesn\'t cause reciprocal depression. You send the alert.' } },
-          { k: 'D', text: 'Early repolarization (normal variant)', grade: 'wrong', check: { ab: 'INT', dc: 10 },
+          { k: 'D', text: 'Early repolarization', grade: 'wrong', check: { ab: 'INT', dc: 10 },
             success: { note: 'You call it benign. No alert. The infarct keeps growing.', hp: -20 },
             fail: { note: 'You almost call it normal, then spot the ST depression in aVL. You send the alert.' } },
         ],
         teach: 'ST elevation in II, III, and aVF: the leads that look at the inferior wall. The mirror image, ST depression in I and aVL, is reciprocal change: the same injury seen from the other side. Reciprocal depression argues hard against pericarditis and early repol. ST elevation in III greater than II points to the right coronary artery.',
       },
       {
-        id: 'q3', type: 'choice', title: 'One More Lead',
+        id: 'q3', type: 'choice', title: 'One More Test',
         prompt: 'Inferior STEMI. BP 100/64, HR 56. Before any medication, which test changes your treatment the most?',
         options: [
           { k: 'A', text: 'Right-sided ECG (V4R)', grade: 'best', check: { ab: 'DEX', dc: 8 },
@@ -119,13 +121,13 @@
         id: 'q4b', type: 'choice', title: 'The Crash', branch: true,
         prompt: 'BP 72/40 after the nitro. He\'s gray and confused. What now?',
         options: [
-          { k: 'A', text: 'Lay him flat, fluid bolus 250–500 mL, reassess lungs', grade: 'best', check: { ab: 'DEX', dc: 12 },
+          { k: 'A', text: 'Lay him flat and give a fluid bolus', grade: 'best', check: { ab: 'DEX', dc: 12 },
             success: { note: 'Line in on the first stick. After 400 mL: BP 94/60, lungs still clear.', vitals: { sbp: 94, dbp: 60, hr: 56, spo2: 96, etco2: 33 }, hp: 20 },
             fail: { note: 'The first IV blows. The second works, three minutes later. BP climbs to 90/58.', vitals: { sbp: 90, dbp: 58, hr: 55, spo2: 95, etco2: 32 }, hp: 10 } },
-          { k: 'B', text: 'Another nitroglycerin', grade: 'wrong', check: { ab: 'DEX', dc: 5 },
+          { k: 'B', text: 'Another nitroglycerin for his chest pain', grade: 'wrong', check: { ab: 'DEX', dc: 5 },
             success: { note: 'BP 64/38. He stops answering questions. Your partner hangs a bolus without asking.', vitals: { sbp: 64, dbp: 38, hr: 48, spo2: 92, etco2: 24 }, hp: -25 },
             fail: { note: 'Your partner grabs your wrist before the tablet reaches his mouth. Good partner.' } },
-          { k: 'C', text: 'Furosemide', grade: 'wrong', check: { ab: 'INT', dc: 10 },
+          { k: 'C', text: 'Furosemide for heart failure', grade: 'wrong', check: { ab: 'INT', dc: 10 },
             success: { note: 'A diuretic drains what preload he has left. BP 64/36.', vitals: { sbp: 64, dbp: 36, etco2: 25 }, hp: -25 },
             fail: { note: 'You can\'t find it in the drug box. Lucky.' } },
           { k: 'D', text: 'Start a pressor before any fluid', grade: 'ok', check: { ab: 'INT', dc: 12 },
@@ -144,10 +146,10 @@
         id: 'q5', type: 'choice', title: 'Name That Rhythm',
         prompt: 'Look at the monitor. What\'s the rhythm?',
         options: [
-          { k: 'A', text: 'Third-degree (complete) heart block', grade: 'best', check: { ab: 'INT', dc: 10 },
+          { k: 'A', text: 'Third-degree AV block', grade: 'best', check: { ab: 'INT', dc: 10 },
             success: { note: 'P waves march at 82. QRS complexes march at 38. No relationship. Complete heart block.', hp: 5 },
             fail: { note: 'It takes a long strip and some caliper work, but you get there: complete heart block.' } },
-          { k: 'B', text: 'Second-degree type I (Wenckebach)', grade: 'wrong', check: { ab: 'INT', dc: 10 },
+          { k: 'B', text: 'Second-degree AV block, type I', grade: 'wrong', check: { ab: 'INT', dc: 10 },
             success: { note: 'You call Wenckebach. But the PR isn\'t lengthening. There\'s no PR relationship at all.', hp: -5 },
             fail: { note: 'You look for a lengthening PR and can\'t find one. You rethink it.' } },
           { k: 'C', text: 'Sinus bradycardia', grade: 'wrong', check: { ab: 'INT', dc: 10 },

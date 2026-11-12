@@ -330,3 +330,10 @@ body.wide-ecg .stage-right { display: none; }
   .teams-grid { grid-template-columns: 1fr 1fr; }
   .tb-row { grid-template-columns: 1.6em auto minmax(0, 1fr) auto; font-size: 1em; }
 }
+
+/* closing a vote early takes a second press */
+.next.armed { background: linear-gradient(180deg, #ffd9a0, #f0a24a); box-shadow: 0 0 0 3px rgba(240, 162, 74, .45), 0 4px 18px rgba(240, 162, 74, .3); }
+
+/* another DM screen is live on the same room code */
+.peer-warn { position: fixed; top: 3.2em; left: 50%; transform: translateX(-50%); z-index: 60; width: min(92vw, 60em); background: #ffd166; color: #1d1606; border-radius: .7em; padding: .75em 1.1em; font-size: 1.05em; line-height: 1.35; box-shadow: 0 10px 34px rgba(0, 0, 0, .5); }
+.peer-warn b { font-weight: 800; }

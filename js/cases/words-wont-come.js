@@ -21,10 +21,10 @@
         vitals: { rhythm: 'afib', hr: 104, sbp: 188, dbp: 102, spo2: 96, rr: 18, etco2: 36 },
       },
       {
-        id: 'q1', type: 'choice', title: 'The Clock',
+        id: 'q1', type: 'choice', title: 'The History',
         prompt: 'What\'s the single most important piece of history to get right now?',
         options: [
-          { k: 'A', text: 'Last known well: when she was last seen normal', grade: 'best', check: { ab: 'CHA', dc: 8 },
+          { k: 'A', text: 'When she was last seen normal', grade: 'best', check: { ab: 'CHA', dc: 8 },
             success: { note: '10:20, when they parked. He watched her talk to the cashier at the deli at 10:25, fine. You write 10:25 on your glove.', hp: 5 },
             fail: { note: 'He\'s flustered: "Ten-twenty? Ten-thirty?" You record the earlier time, 10:20, to be safe.' } },
           { k: 'B', text: 'When her husband first noticed the symptoms', grade: 'wrong', check: { ab: 'CHA', dc: 8 },
@@ -40,7 +40,7 @@
         teach: 'Every stroke decision runs on the clock, and the clock starts at last known well. That\'s the last time she was seen normal, not the moment someone noticed a problem. Thrombolytics have a time window. Thrombectomy has a longer one. Get an exact time and write it down.',
       },
       {
-        id: 'q2', type: 'choice', title: 'Rule Out the Mimic',
+        id: 'q2', type: 'choice', title: 'One Quick Check',
         prompt: 'Before you call a stroke alert, which check can\'t be skipped?',
         options: [
           { k: 'A', text: 'Blood glucose', grade: 'best', check: { ab: 'DEX', dc: 5 },
@@ -81,16 +81,16 @@
         id: 'qlams', type: 'choice', title: 'Score It',
         prompt: 'Los Angeles Motor Scale. Facial droop: present. Arm drift: her right arm falls rapidly. Grip: no grip on the right. What\'s her LAMS?',
         options: [
-          { k: 'A', text: '5: a large vessel occlusion is likely', grade: 'best', check: { ab: 'INT', dc: 10 },
-            success: { note: 'Face 1, arm 2, grip 2. LAMS 5. You start thinking about thrombectomy.', hp: 5 },
+          { k: 'A', text: 'LAMS 5', grade: 'best', check: { ab: 'INT', dc: 10 },
+            success: { note: 'Face 1, arm 2, grip 2. LAMS 5: a large vessel occlusion is likely. You start thinking about thrombectomy.', hp: 5 },
             fail: { note: 'You add it up twice before you trust it: 1 + 2 + 2 = 5.' } },
-          { k: 'B', text: '3: a large vessel occlusion is unlikely', grade: 'wrong', check: { ab: 'INT', dc: 10 },
+          { k: 'B', text: 'LAMS 3', grade: 'wrong', check: { ab: 'INT', dc: 10 },
             success: { note: 'You scored the arm and grip at 1 each. They\'re 2s. You just underestimated a big clot.', hp: -10 },
             fail: { note: 'You rescore the arm: it falls, it doesn\'t drift. That\'s a 2.' } },
-          { k: 'C', text: '4: borderline, so call it negative', grade: 'wrong', check: { ab: 'INT', dc: 10 },
-            success: { note: 'Four is already over the line, and the real score is 5. You talk yourself out of the right hospital.', hp: -10 },
-            fail: { note: 'Then you remember 4 is the cutoff for positive, not borderline.' } },
-          { k: 'D', text: '2: a small stroke', grade: 'wrong', check: { ab: 'INT', dc: 10 },
+          { k: 'C', text: 'LAMS 4', grade: 'ok', check: { ab: 'INT', dc: 10 },
+            success: { note: 'You scored the arm as a drift. It falls, so it\'s a 2, and the real score is 5. Four is still over the line, so the plan doesn\'t change.' },
+            fail: { note: 'You rescore the arm: it falls, it doesn\'t drift. That\'s a 2, for a total of 5.' } },
+          { k: 'D', text: 'LAMS 2', grade: 'wrong', check: { ab: 'INT', dc: 10 },
             success: { note: 'You only counted the face and the grip. She\'s much sicker than a 2.', hp: -10 },
             fail: { note: 'You go through each item again and get 5.' } },
         ],
@@ -148,7 +148,7 @@
         hp: -5,
       },
       {
-        id: 'qair', type: 'choice', title: 'Airway First',
+        id: 'qair', type: 'choice', title: 'Gurgling',
         prompt: 'She\'s gurgling and her SpO₂ is 91%. What do you do?',
         options: [
           { k: 'A', text: 'Roll her onto her side and suction', grade: 'best', check: { ab: 'DEX', dc: 10 },

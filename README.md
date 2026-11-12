@@ -27,12 +27,16 @@ The cases are written to work anywhere. They don't name real places. Destination
 
 | Key | Action |
 |---|---|
-| → / Space / Enter / PageDown | Next (presentation clickers work) |
+| → / Space / Enter / PageDown | Next (presentation clickers work; a double press counts once, and closing a vote before everyone has answered takes a second press) |
 | R | Call for a roll |
 | F | Full screen |
 | M | Monitor beep on/off |
 
-**Fixed room code (for a Canva or PowerPoint slide):** open `host.html?r=MEDIC` and the room is always `MEDIC`. Students' QR code: `https://mussidik1.github.io/case-room/?r=MEDIC`.
+**Fixed room code (for a Canva or PowerPoint slide):** open `host.html?r=MEDIC` and the room is always `MEDIC`. Students' QR code: `https://mussidik1.github.io/case-room/?r=MEDIC`. Codes are shared by everyone who uses this site, so pick one that's yours (your initials plus a number works). If another DM screen goes live on the same code, your screen shows a warning. Each game starts fresh, so phones never carry answers over from an earlier session on the same code.
+
+**Answer order:** the options are shuffled for every game, and the best answer lands evenly across A to D. Every phone sees the same order as the big screen.
+
+**Refreshed by accident?** Reopen the DM screen and tap **Resume**. You land on the same screen, with any open vote and the answers already in. Nothing is scored twice.
 
 **Teams:** in Settings, set Teams to 2, 3, or 4 (A Shift through D Shift). Students are auto-balanced as they join. They can switch teams on their phones in the lobby, and you can tap a name in the lobby to move that player. Teams are ranked by average XP, so team size doesn't decide the winner.
 
@@ -88,7 +92,7 @@ Copy `js/cases/kitchen-table.js` to a new file, edit it, and add a `<script>` li
 
 - `scene`: read-aloud text. Optional `vitals` (sets the monitor) and `hp` (+/-).
 - `roll`: everyone rolls one check, e.g. `{ ab: 'WIS', dc: 12 }`, with `success` and `fail` outcomes.
-- `choice`: a decision with options. Each option has `grade` (`best` / `ok` / `wrong`), a `check`, and `success` / `fail` outcomes. Add `teach` for the lesson shown after the vote. An `ecg` field shows a 12-lead.
+- `choice`: a decision with options. Each option has `grade` (`best` / `ok` / `wrong`), a `check`, and `success` / `fail` outcomes. Add `teach` for the lesson shown after the vote. An `ecg` field shows a 12-lead. Write the options in any order, since they're shuffled each game. Never refer to an option by its letter, and keep options similar in length and form so the right one doesn't stand out. Keep step titles from hinting at the answer, because they show during the vote.
 - `debrief`: the wrap-up.
 
 An outcome can include:

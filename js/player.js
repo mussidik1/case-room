@@ -17,9 +17,22 @@
     picks: {}, rolls: {}, rolling: false, key: '', net: { ok: 0, total: 0, local: false },
   };
 
+  // Saved per room code so a refresh puts you back in the game. Question ids include the host's game id,
+  // so answers saved here can't be replayed into a later game on the same code.
+  const ID_TTL = 12 * 3600 * 1000;
   const lsKey = () => 'caseroom-p-' + P.room;
   function loadId() { try { return JSON.parse(localStorage.getItem(lsKey()) || 'null'); } catch (e) { return null; } }
+  function fresh(saved) { return !!(saved && Date.now() - (saved.t || 0) < ID_TTL); }
+  function recent(o) {
+    const ks = Object.keys(o || {});
+    if (ks.length <= 40) return o || {};
+    const out = {};
+    for (const k of ks.slice(-40)) out[k] = o[k];
+    return out;
+  }
   function saveId() {
+    P.picks = recent(P.picks);
+    P.rolls = recent(P.rolls);
     try { localStorage.setItem(lsKey(), JSON.stringify({ pid: P.pid, name: P.name, cls: P.cls, picks: P.picks, rolls: P.rolls, t: Date.now() })); } catch (e) { /* ignore */ }
   }
 
@@ -56,9 +69,10 @@
       history.replaceState(null, '', u.toString());
     }
     const prev = loadId();
-    P.pid = prev && prev.pid ? prev.pid : 'p-' + N.rid(10);
-    P.picks = (prev && prev.picks) || {};
-    P.rolls = (prev && prev.rolls) || {};
+    const keep = fresh(prev);
+    P.pid = keep && prev.pid ? prev.pid : 'p-' + N.rid(10);
+    P.picks = (keep && prev.picks) || {};
+    P.rolls = (keep && prev.rolls) || {};
     P.name = name;
     saveId();
     enter();
@@ -434,10 +448,12 @@
     };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); if (P.pid) sendJoin(); } });
     const saved = P.room ? loadId() : null;
-    if (saved && saved.pid && saved.name && saved.cls) {
+    if (saved && saved.pid && saved.name && saved.cls && fresh(saved)) {
       Object.assign(P, { pid: saved.pid, name: saved.name, cls: saved.cls, picks: saved.picks || {}, rolls: saved.rolls || {} });
       enter();
     } else {
+      // a day-old visit to a reused room code: start fresh, but keep the name and class filled in
+      if (saved) { P.name = saved.name || ''; P.cls = R.CLASSES[saved.cls] ? saved.cls : ''; }
       showJoin();
     }
     window.CRPlayer = P;

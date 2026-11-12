@@ -19,11 +19,15 @@
   const G = {
     phase: 'setup',
     hid: N.rid(8),
+    gid: N.rid(6), // game id: part of every question id, so answers saved on phones never carry into another game
     seq: 0,
     askN: 0,
     room: null,
     settings: Object.assign({}, DEFAULT_SETTINGS, loadJson(LS_SETTINGS) || {}),
-    caseDef: CASES[0] || null,
+    caseDef: CASES[0] || null, // during play, a per-game copy with the answer order shuffled
+    order: null, // step id -> authored option keys, in the order shown this game
+    peer: null, // another DM screen seen live on the same room code
+    closeArm: 0, // first press of "close the vote" while answers are still coming in
     stepIdx: -1,
     hp: 100,
     hpMax: 100,
@@ -43,6 +47,8 @@
   let timerInt = null;
   let pubTimer = null;
   let liveTimer = null;
+  let saveTimer = null;
+  let lastNextAt = 0;
   let viewKey = '';
 
   function loadJson(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } }
@@ -90,6 +96,52 @@
     return [...G.players.values()].filter((p) => !G.kicked.has(p.pid)).sort((a, b) => b.xp - a.xp || a.joined - b.joined);
   }
 
+  /* ---- answer order: shuffled once per game, the same on every phone ---- */
+  function randInt(n) { const r = new Uint32Array(1); crypto.getRandomValues(r); return r[0] % n; }
+  function shuffled(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = randInt(i + 1); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  }
+  // The best answer's slot is drawn from a shuffled bag of A–D, so it lands evenly across the letters
+  // over a case and never in the same slot twice in a row. The other options fill the rest at random.
+  function makeOrder(base) {
+    const order = {};
+    let bag = [], last = -1;
+    for (const st of base.steps) {
+      if (st.type !== 'choice' || !st.options || !st.options.length) continue;
+      const n = st.options.length;
+      const best = st.options.find((o) => o.grade === 'best');
+      if (!best) { order[st.id] = shuffled(st.options.map((o) => o.k)); continue; }
+      let pos = -1;
+      for (let tries = 0; tries < 3 && pos < 0; tries++) {
+        if (!bag.length) bag = shuffled([0, 1, 2, 3]);
+        const i = bag.findIndex((p) => p < n && p !== last);
+        if (i >= 0) pos = bag.splice(i, 1)[0]; else bag = [];
+      }
+      if (pos < 0) pos = randInt(n);
+      last = pos;
+      const keys = shuffled(st.options.filter((o) => o !== best)).map((o) => o.k);
+      keys.splice(pos, 0, best.k);
+      order[st.id] = keys;
+    }
+    return order;
+  }
+  // A copy of the case with each decision's options in this game's order, relettered A, B, C…
+  function applyOrder(base, order) {
+    if (!base || !order) return base;
+    return Object.assign({}, base, {
+      steps: base.steps.map((st) => {
+        const ks = order[st.id];
+        if (st.type !== 'choice' || !ks || ks.length !== st.options.length) return st;
+        const opts = ks.map((k0, i) => Object.assign({}, st.options.find((o) => o.k === k0), { k: 'ABCDEFGH'[i], k0 }));
+        if (opts.some((o) => !o.text)) return st; // order from an older version of the case
+        return Object.assign({}, st, { options: opts });
+      }),
+    });
+  }
+  function baseCase(id) { return CASES.find((c) => c.id === id) || null; }
+
   function qrSvg(text) {
     const q = window.qrcode(0, 'M');
     q.addData(text);
@@ -104,9 +156,12 @@
 
   function startRelay() {
     if (relay) relay.stop();
+    G.peer = null;
+    renderPeer();
     relay = new N.Relay({
       room: G.room, role: 'host',
       onUp: onUp,
+      onPeer: onPeer,
       onStatus: (s) => { G.net = s; renderBar(); },
     }).start();
     publish();
@@ -124,6 +179,31 @@
     relay.publishState(buildState());
   }
 
+  // Another DM screen publishing live on this code (a second laptop, an old tab, another instructor).
+  // Retained messages are only the last word from an earlier session, so they don't count.
+  function onPeer(m, via, retained) {
+    if (!m || m.app !== 'caseroom' || m.room !== G.room || m.hid === G.hid) return;
+    if (retained || m.phase === 'setup' || Date.now() - (m.ts || 0) > 20000) return;
+    const fresh = !peerLive();
+    G.peer = { at: Date.now(), hid: m.hid };
+    if (fresh) renderPeer();
+  }
+  function peerLive() { return !!(G.peer && Date.now() - G.peer.at < 15000); }
+  function renderPeer() {
+    let el = $('#peerWarn');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'peerWarn';
+      el.className = 'peer-warn';
+      el.setAttribute('role', 'alert');
+      el.hidden = true;
+      document.body.appendChild(el);
+    }
+    const on = peerLive() && G.phase !== 'setup';
+    if (on) el.innerHTML = `<b>Another DM screen is live in room ${esc(G.room)}.</b> Phones will jump between the two. Close the other screen, or go back and open a different room code.`;
+    el.hidden = !on;
+  }
+
   function buildState() {
     const st = step();
     const pr = progress();
@@ -132,7 +212,7 @@
     rk.forEach((p, i) => { xp[p.pid] = [p.xp, i + 1, R.levelFor(p.xp).level, p.lastXp || 0, p.team || '']; });
     const mv = monitor ? monitor.snapshot() : {};
     const s = {
-      app: 'caseroom', v: 2, hid: G.hid, seq: ++G.seq, ts: Date.now(), room: G.room,
+      app: 'caseroom', v: 2, hid: G.hid, gid: G.gid, seq: ++G.seq, ts: Date.now(), room: G.room,
       phase: G.phase,
       title: G.caseDef ? G.caseDef.title : '',
       step: st ? { id: st.id, type: st.type, title: st.title, text: st.type === 'scene' ? st.text : undefined, i: pr.i, n: pr.n } : null,
@@ -264,6 +344,7 @@
     }
     schedulePublish();
     scheduleLive();
+    if (m.t !== 'hb') scheduleSave();
   }
 
   function checkAllIn() {
@@ -283,6 +364,7 @@
   function openRoom() {
     G.room = cleanCode($('#setCode').value) || newCode();
     $('#setCode').value = G.room;
+    G.gid = N.rid(6);
     G.phase = 'lobby';
     G.hp = G.hpMax = (G.caseDef && G.caseDef.hp) || 100;
     saveJson(LS_SETTINGS, G.settings);
@@ -293,6 +375,9 @@
 
   function beginCase() {
     if (!G.caseDef) return;
+    const base = baseCase(G.caseDef.id) || G.caseDef;
+    G.order = makeOrder(base);
+    G.caseDef = applyOrder(base, G.order);
     G.finished = false;
     G.hp = G.hpMax = G.caseDef.hp || 100;
     G.stepIdx = -1;
@@ -351,8 +436,9 @@
   function openChoice(st) {
     G.phase = 'choose';
     const secs = st.time || G.settings.timer;
+    G.closeArm = 0;
     G.ask = {
-      sid: 'c' + (++G.askN) + '-' + st.id, kind: 'choice', opened: Date.now(), dur: secs ? secs * 1000 : 0,
+      sid: G.gid + '.c' + (++G.askN) + '-' + st.id, kind: 'choice', opened: Date.now(), dur: secs ? secs * 1000 : 0,
       picks: new Map(), rolls: new Map(), closed: false, insp: inspiredSet(), pre: null, preHp: G.hp,
     };
     startTimer();
@@ -361,8 +447,9 @@
 
   function openRoll(spec, adhoc) {
     G.phase = 'roll';
+    G.closeArm = 0;
     G.ask = {
-      sid: 'r' + (++G.askN), kind: 'roll', spec, adhoc: !!adhoc, opened: Date.now(), dur: 30000,
+      sid: G.gid + '.r' + (++G.askN), kind: 'roll', spec, adhoc: !!adhoc, opened: Date.now(), dur: 30000,
       picks: new Map(), rolls: new Map(), closed: false, insp: inspiredSet(), preHp: G.hp,
     };
     startTimer();
@@ -537,16 +624,20 @@
     logHistory();
     render();
     publish();
+    saveGame();
   }
 
   function next() {
+    const now = Date.now();
+    if (now - lastNextAt < 800) return; // a clicker double-press, or a key bounce
+    lastNextAt = now;
     switch (G.phase) {
       case 'lobby': return beginCase();
       case 'scene': return advance();
-      case 'choose': return closeChoice();
-      case 'roll': return closeRoll();
+      case 'choose':
+      case 'roll': return tryCloseVote(now);
       case 'reveal':
-        if (G.settings.board === 'each' && G.players.size) { G.phase = 'board'; render(); publish(); return; }
+        if (G.settings.board === 'each' && G.players.size) { G.phase = 'board'; render(); publish(); saveGame(); return; }
         return advance();
       case 'rollReveal':
         if (G.adhoc) return resumeAdhoc();
@@ -554,6 +645,31 @@
       case 'board': return advance();
       default: return undefined;
     }
+  }
+
+  // How many of the people in the room have answered the open vote (picked a choice, or rolled a check)
+  function answered(a) {
+    const act = activePlayers();
+    const done = act.filter((p) => (a.kind === 'choice' ? a.picks.has(p.pid) : a.rolls.has(p.pid))).length;
+    return { done, total: act.length };
+  }
+  function armed() { return !!(G.closeArm && Date.now() - G.closeArm < 5000); }
+
+  // Closing a vote can't be undone, so a stray press doesn't do it: presses in the first seconds after a
+  // vote opens are ignored, and while answers are still coming in it takes a second press to close.
+  function tryCloseVote(now) {
+    const a = G.ask;
+    if (!a || a.closed) return;
+    if (now - a.opened < 2500) return;
+    const n = answered(a);
+    if (n.done < n.total && !armed()) {
+      G.closeArm = now;
+      renderControls();
+      setTimeout(renderControls, 5100);
+      return;
+    }
+    G.closeArm = 0;
+    (a.kind === 'choice' ? closeChoice : closeRoll)();
   }
 
   function finish(st) {
@@ -589,6 +705,7 @@
     G.pendingNext = s.pendingNext;
     render();
     publish();
+    saveGame();
   }
 
   /* ---- bots ---- */
@@ -601,6 +718,7 @@
     }
     render();
     publish();
+    scheduleSave();
   }
 
   function botsAct() {
@@ -630,47 +748,114 @@
     }
   }
 
-  /* ---- save / resume (survives an accidental refresh) ---- */
+  /* ---- save / resume (survives an accidental refresh) ----
+     The save is a full snapshot: the screen you were on, the open question with its answers so far, the last
+     result, and where the story goes next. Resume puts you back on that screen. It never reopens a decision
+     that was already scored, so XP, HP, and the log can't count twice. */
+  function packAsk(a) {
+    if (!a) return null;
+    return {
+      sid: a.sid, kind: a.kind, opened: a.opened, dur: a.dur, closed: !!a.closed, adhoc: !!a.adhoc, preHp: a.preHp,
+      picks: [...a.picks], rolls: [...a.rolls], insp: [...a.insp], spec: a.kind === 'roll' ? a.spec : null, savedAt: Date.now(),
+    };
+  }
+  function unpackAsk(x) {
+    if (!x) return null;
+    return Object.assign({}, x, { picks: new Map(x.picks || []), rolls: new Map(x.rolls || []), insp: new Set(x.insp || []), allIn: false });
+  }
   function saveGame() {
-    if (!G.room || !G.caseDef) return;
+    clearTimeout(saveTimer);
+    saveTimer = null;
+    if (!G.room || !G.caseDef || G.phase === 'setup') return;
+    // An ad hoc DM roll is a short detour: save the screen underneath it.
+    const u = G.adhoc ? G.adhoc : { phase: G.phase, ask: G.ask, res: G.res, pendingNext: G.pendingNext };
     saveJson(LS_SAVE, {
-      ts: Date.now(), room: G.room, caseId: G.caseDef.id, stepIdx: G.stepIdx, hp: G.hp, finished: G.finished,
-      players: [...G.players.values()], kicked: [...G.kicked], settings: G.settings, phase: G.phase, history: G.history,
+      v: 3, ts: Date.now(), room: G.room, gid: G.gid, askN: G.askN, caseId: G.caseDef.id, order: G.order,
+      stepIdx: G.stepIdx, hp: G.hp, hpMax: G.hpMax, finished: G.finished,
+      phase: u.phase, ask: packAsk(u.ask), res: u.res || null, pendingNext: u.pendingNext || null,
+      players: [...G.players.values()], kicked: [...G.kicked], settings: G.settings, history: G.history,
       vit: monitor ? monitor.snapshot() : null,
     });
+  }
+  function scheduleSave() {
+    if (saveTimer || G.phase === 'setup') return;
+    saveTimer = setTimeout(saveGame, 1500);
   }
   function savedGame() {
     const s = loadJson(LS_SAVE);
     if (!s || Date.now() - s.ts > 4 * 3600 * 1000 || s.phase === 'setup') return null;
-    if (!CASES.find((c) => c.id === s.caseId)) return null;
+    if (!baseCase(s.caseId)) return null;
     return s;
   }
   function resumeGame(s) {
+    clearInterval(timerInt);
     G.room = s.room;
-    G.caseDef = CASES.find((c) => c.id === s.caseId);
+    G.gid = s.gid || N.rid(6);
+    G.askN = s.askN || 0;
+    G.order = s.order || null;
+    G.caseDef = applyOrder(baseCase(s.caseId), G.order);
     G.settings = Object.assign({}, DEFAULT_SETTINGS, s.settings || {});
     G.players = new Map(s.players.map((p) => [p.pid, Object.assign({ log: [], team: null }, p)]));
     G.history = s.history || [];
     G.kicked = new Set(s.kicked || []);
     G.hp = s.hp;
-    G.hpMax = G.caseDef.hp || 100;
+    G.hpMax = s.hpMax || G.caseDef.hp || 100;
     G.finished = !!s.finished;
+    G.stepIdx = s.stepIdx;
+    G.pendingNext = s.pendingNext || null;
+    G.adhoc = null;
+    G.ask = null;
+    G.res = null;
     $('#setCode').value = G.room;
-    startRelay();
     if (s.vit && s.vit.rhythm && s.vit.rhythm !== 'none') {
       const v = Object.assign({}, s.vit);
       if (v.nibpS) { v.sbp = v.nibpS; v.dbp = v.nibpD; }
       monitor.set(v);
     } else monitor.set({ rhythm: 'none' });
-    if (s.phase === 'lobby' || s.stepIdx < 0) { G.phase = 'lobby'; render(); publish(); return; }
-    if (s.phase === 'final') { finish(null); return; }
-    G.stepIdx = s.stepIdx;
+
     const st = step();
-    // re-open the current step without re-applying its entry effects
-    if (st.type === 'choice') openChoice(st);
-    else if (st.type === 'roll') openRoll(st, false);
-    else G.phase = 'scene';
+    let ph = s.phase;
+    let reopen = false;
+    if (ph === 'lobby' || G.stepIdx < 0 || !st) ph = 'lobby';
+    else if (ph === 'final') { G.debrief = [...steps()].reverse().find((x) => x.type === 'debrief') || null; }
+    else if (!s.v || s.v < 3) {
+      // a save from before full snapshots: never re-ask a question that may already be scored
+      if (ph === 'choose' || ph === 'roll') reopen = true;
+      else if (ph !== 'scene') ph = 'board';
+    } else if (ph === 'choose' || ph === 'roll') {
+      const a = unpackAsk(s.ask);
+      if (a && !a.closed) {
+        if (a.kind === 'roll' && !a.adhoc && st.type === 'roll') a.spec = st;
+        // keep the time that was left, but give phones at least 15 seconds to resend their answers
+        if (a.dur) {
+          const used = clamp((a.savedAt || s.ts) - a.opened, 0, a.dur);
+          a.opened = Date.now() - (a.dur - Math.max(15000, a.dur - used));
+        }
+        G.ask = a;
+      } else reopen = true;
+    } else if (ph === 'reveal' || ph === 'rollReveal') {
+      const a = unpackAsk(s.ask);
+      if (a && s.res) {
+        if (a.kind === 'roll' && !a.adhoc && st.type === 'roll') a.spec = st;
+        G.ask = a;
+        G.res = s.res;
+      } else ph = 'board';
+    }
+    G.phase = ph;
+    if (reopen) {
+      if (st.type === 'choice') openChoice(st);
+      else if (st.type === 'roll') openRoll(st, false);
+      else G.phase = 'scene';
+    }
+    startRelay();
+    viewKey = '';
     render();
+    if (!reopen && G.ask && !G.ask.closed && (G.phase === 'choose' || G.phase === 'roll')) {
+      startTimer();
+      botsAct();
+      checkAllIn();
+    }
+    saveGame();
     publish();
   }
 
@@ -727,8 +912,15 @@
       case 'setup': hide = true; h = ''; break;
       case 'lobby': label = 'Begin the adventure ▸'; h = ranked().length ? `${ranked().length} in the party` : 'Waiting for players… or add a practice party'; break;
       case 'scene': h = '→ / Space / clicker to continue · R to call for a roll'; break;
-      case 'choose': label = 'Close the vote ▸'; break;
-      case 'roll': label = 'Close the roll ▸'; break;
+      case 'choose':
+      case 'roll':
+        label = G.phase === 'choose' ? 'Close the vote ▸' : 'Close the roll ▸';
+        if (armed() && G.ask) {
+          const n = answered(G.ask);
+          label = `Press again to close · ${n.done}/${n.total} in`;
+          h = 'Not everyone has answered yet';
+        }
+        break;
       case 'reveal': label = G.settings.board === 'each' && G.players.size ? 'Standings ▸' : 'Continue ▸'; h = 'R to call for a roll'; break;
       case 'board': h = '✧ grants Inspiration (advantage on the next roll)'; break;
       case 'rollReveal': label = G.adhoc ? 'Back to the story ▸' : 'Continue ▸'; break;
@@ -737,6 +929,7 @@
     }
     btn.hidden = hide;
     btn.textContent = label;
+    btn.classList.toggle('armed', (G.phase === 'choose' || G.phase === 'roll') && armed());
     hint.textContent = h;
   }
 
@@ -867,7 +1060,7 @@
     for (const c of $$('.pc', box)) {
       c.onclick = (e) => {
         const pid = c.dataset.pid;
-        if (e.target.closest('.pc-x')) { G.kicked.add(pid); G.players.delete(pid); renderLobby(); renderControls(); renderBar(); publish(); return; }
+        if (e.target.closest('.pc-x')) { G.kicked.add(pid); G.players.delete(pid); renderLobby(); renderControls(); renderBar(); publish(); scheduleSave(); return; }
         const p = G.players.get(pid);
         if (!p || !ts.length) return;
         const i = ts.findIndex((t) => t.id === p.team);
@@ -1016,8 +1209,8 @@
         if (!c.hidden) { drawEcg(c, st.ecg); setTimeout(() => c.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 60); }
       };
     }
-    for (const b of $$('.vote', left)) b.onclick = () => { resolveParty(b.dataset.k, null); render(); publish(); };
-    for (const b of $$('[data-force]', left)) b.onclick = () => { resolveParty(G.res.party.k, b.dataset.force === '1'); render(); publish(); };
+    for (const b of $$('.vote', left)) b.onclick = () => { resolveParty(b.dataset.k, null); render(); publish(); saveGame(); };
+    for (const b of $$('[data-force]', left)) b.onclick = () => { resolveParty(G.res.party.k, b.dataset.force === '1'); render(); publish(); saveGame(); };
   }
 
   function renderRollReveal(left, st) {
@@ -1083,6 +1276,7 @@
         viewKey = '';
         render();
         publish();
+        scheduleSave();
       };
     }
   }
@@ -1175,7 +1369,9 @@
     $('#btnAgain').onclick = () => {
       for (const p of G.players.values()) { p.xp = 0; p.lastXp = 0; p.crits = 0; p.fumbles = 0; p.insp = false; p.log = []; }
       G.history = [];
+      G.gid = N.rid(6);
       G.phase = 'lobby';
+      saveGame();
       viewKey = '';
       render();
       publish();
@@ -1319,6 +1515,7 @@
       if (['ArrowRight', 'PageDown', ' ', 'Enter'].includes(e.key)) {
         if (G.phase === 'setup' || G.phase === 'final') return;
         e.preventDefault();
+        if (e.repeat) return; // a held-down key or clicker button
         next();
       } else if (e.key === 'r' || e.key === 'R') { if (!$('#btnRoll').disabled && !$('#btnRoll').hidden) { buildRollModal(); openModal('#mRoll'); } }
       else if (e.key === 'f' || e.key === 'F') toggleFull();
@@ -1350,7 +1547,8 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') keepAwake(); });
     keepAwake();
     render();
-    window.CRHost = { G, next, addBots, startAdhoc, closeChoice, closeRoll, exportSummary, exportLog, teamStandings }; // handy for testing
+    setInterval(renderPeer, 2000);
+    window.CRHost = { G, next, addBots, startAdhoc, closeChoice, closeRoll, exportSummary, exportLog, teamStandings, savedGame, resumeGame, makeOrder, applyOrder }; // handy for testing
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
