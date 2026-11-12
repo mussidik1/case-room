@@ -1,10 +1,10 @@
-/* Case: Down on Route 40 — motorcycle crash, hemorrhagic shock, prehospital whole blood.
+/* Case: Down at the Barrier — motorcycle crash, hemorrhagic shock, prehospital whole blood.
    Teaching simulation. Follow your local protocols for doses, devices, and destinations. */
 (function () {
   window.CR_CASES = window.CR_CASES || [];
   window.CR_CASES.push({
-    id: 'route-40',
-    title: 'Down on Route 40',
+    id: 'down-at-the-barrier',
+    title: 'Down at the Barrier',
     tagline: 'Hemorrhagic shock · whole blood',
     level: 'ALS',
     minutes: 25,
@@ -12,12 +12,12 @@
     steps: [
       {
         id: 'call', type: 'scene', title: 'The Call',
-        text: 'Dusk, 18:41. Motorcycle versus guardrail on Route 40, one patient. Caller says there is "a lot of blood." Your party pulls up behind the engine company already blocking the lane.',
+        text: 'Dusk, 18:41. A motorcycle has hit a roadside barrier at speed. One patient. The caller says there is "a lot of blood." Your party pulls up behind the fire crew already shielding the lane.',
         vitals: { rhythm: 'none' },
       },
       {
         id: 'scene', type: 'scene', title: 'On the Shoulder',
-        text: 'A 34-year-old man lies twenty feet from his bike, helmet still on. He\'s awake, pale, and asking about his leg. His left thigh is bent where it shouldn\'t be, bone showing through torn jeans, and bright red blood is pooling on the asphalt under it. Your partner gets the monitor on.',
+        text: 'A 34-year-old man lies a few car lengths from his bike, helmet still on. He\'s awake, pale, and asking about his leg. His left thigh is bent where it shouldn\'t be, bone showing through torn jeans, and bright red blood is pooling on the asphalt under it. Your partner gets the monitor on.',
         vitals: { rhythm: 'sinus', hr: 128, sbp: 86, dbp: 54, spo2: 94, rr: 24, etco2: 27 },
       },
       {
@@ -37,14 +37,14 @@
             success: { note: 'BP 86/54. While you pumped the cuff, the puddle grew.', hp: -15 },
             fail: { note: 'The cuff won\'t read. Your partner slaps a tourniquet on while you fight with it.', hp: -5 } },
         ],
-        teach: 'Massive hemorrhage kills fastest, so it comes first. That means before airway and before the collar (MARCH, or X-ABC). A tourniquet placed high and tight, cranked until the bleeding stops and the distal pulse is gone, buys the time everything else needs. Write the time on it.',
+        teach: 'Massive hemorrhage kills fastest, so it comes first. That means before airway and before the collar (MARCH, X-ABC, or <C>ABC, depending on where you trained). A tourniquet placed high and tight, cranked until the bleeding stops and the distal pulse is gone, buys the time everything else needs. Write the time on it.',
       },
       {
         id: 'sweep', type: 'roll', title: 'The Blood Sweep',
         prompt: 'Perception check. Run your hands over him, head to toe. What else is bleeding?',
         check: { ab: 'WIS', dc: 12 },
         success: { note: 'His groin and perineum are swelling, both legs are rolled outward, and he winces when you touch his hips. High-energy crash, pelvic pain, low pressure: think pelvic fracture.' },
-        fail: { note: 'Nothing jumps out beyond the leg. But a 45 mph crash into a guardrail doesn\'t usually injure just one bone.' },
+        fail: { note: 'Nothing jumps out beyond the leg. But a high-speed crash into a barrier doesn\'t usually injure just one bone.' },
       },
       {
         id: 'q2', type: 'choice', title: 'The Pelvis',
@@ -98,7 +98,7 @@
             fail: { note: 'The bag barely drips through a kinked line. Probably for the best.' } },
           { k: 'C', text: 'Nothing for now. Scoop and run', grade: 'ok', check: { ab: 'STR', dc: 8 },
             success: { note: 'You\'re rolling in two minutes, but he arrives with a pressure of 70.', vitals: { hr: 140, sbp: 70, dbp: 40, etco2: 22 }, hp: -10 },
-            fail: { note: 'The scoop sticks on the guardrail post. You lose three minutes and he still gets nothing.', vitals: { hr: 140, sbp: 72, dbp: 40, etco2: 22 }, hp: -15 } },
+            fail: { note: 'The scoop sticks on a barrier post. You lose three minutes and he still gets nothing.', vitals: { hr: 140, sbp: 72, dbp: 40, etco2: 22 }, hp: -15 } },
           { k: 'D', text: 'Push-dose epinephrine', grade: 'wrong', check: { ab: 'INT', dc: 10 },
             success: { note: 'Pressure jumps to 104 for three minutes, then falls through the floor. You can\'t squeeze an empty tank.', vitals: { hr: 140, sbp: 72, dbp: 40, etco2: 23 }, hp: -15 },
             fail: { note: 'You can\'t find the syringe you prepped. Your partner hangs the whole blood instead.', vitals: { hr: 116, sbp: 94, dbp: 58, etco2: 30 }, hp: 10 } },
@@ -115,12 +115,12 @@
         id: 'q4', type: 'choice', title: 'The Lethal Triad',
         prompt: 'Cold, acidotic, coagulopathic. Each one makes the others worse. Which do you go after next?',
         options: [
-          { k: 'A', text: 'Wet clothes off, blankets on, heat up in the box', grade: 'best', check: { ab: 'DEX', dc: 8 },
+          { k: 'A', text: 'Wet clothes off, blankets on, heat up in the ambulance', grade: 'best', check: { ab: 'DEX', dc: 8 },
             success: { note: 'Dry, wrapped, heat on high. The shivering slows.', hp: 5 },
             fail: { note: 'The wet jeans fight you. It takes the trauma shears and two extra minutes, but he ends up dry and wrapped.' } },
           { k: 'B', text: 'Tranexamic acid per protocol', grade: 'best', check: { ab: 'INT', dc: 10 },
             success: { note: 'TXA is in, well inside the three-hour window.', hp: 5 },
-            fail: { note: 'You second-guess the dose and call medical control. It goes in a few minutes later.' } },
+            fail: { note: 'You second-guess the dose and call for clinical advice. It goes in a few minutes later.' } },
           { k: 'C', text: 'Sodium bicarbonate for the acidosis', grade: 'wrong', check: { ab: 'INT', dc: 10 },
             success: { note: 'The pH will look better on paper. He won\'t.', hp: -5 },
             fail: { note: 'Your partner asks what you\'re treating. You put it back.' } },
@@ -132,30 +132,30 @@
       },
       {
         id: 'lift', type: 'roll', title: 'Up the Embankment',
-        prompt: 'Strength check. Scoop, secure, and carry him up the wet embankment to the rig.',
+        prompt: 'Strength check. Scoop, secure, and carry him up the wet embankment to the ambulance.',
         check: { ab: 'STR', dc: 12 },
         success: { note: 'A smooth, level lift. The binder and the tourniquet never budge.' },
         fail: { note: 'Someone slips on the wet grass. The binder holds, but he groans and his pressure dips.', vitals: { sbp: 88, dbp: 52 }, hp: -5 },
       },
       {
         id: 'q5', type: 'choice', title: 'Destination',
-        prompt: 'The closest emergency department is 6 minutes away. The Level I trauma center is 25 minutes by ground. Where is he going?',
+        prompt: 'The closest emergency department is 6 minutes away. The major trauma center is 25 minutes by road. Where is he going?',
         options: [
-          { k: 'A', text: 'Trauma center by ground, with a trauma alert', grade: 'best', check: { ab: 'CHA', dc: 8 },
+          { k: 'A', text: 'Major trauma center by road, with a pre-alert', grade: 'best', check: { ab: 'CHA', dc: 8 },
             success: { note: 'Your alert is crisp. The trauma team, blood bank, and interventional radiology are waiting.', hp: 10 },
             fail: { note: 'The first call drops. Your second one gets through, and the team is ready.', hp: 5 } },
           { k: 'B', text: 'Closest emergency department to stabilize first', grade: 'wrong', check: { ab: 'STR', dc: 5 },
             success: { note: 'You turn toward the closest ED. Your partner frowns: they have no trauma surgeon tonight, so he\'ll need a second ride. That costs about 90 minutes before surgery.', hp: -25 },
             fail: { note: 'Your partner points out the closest ED can\'t fix internal bleeding. You head for the trauma center.' } },
-          { k: 'C', text: 'Request a helicopter and wait for it on scene', grade: 'wrong', check: { ab: 'CHA', dc: 10 },
+          { k: 'C', text: 'Request an air ambulance and wait for it on scene', grade: 'wrong', check: { ab: 'CHA', dc: 10 },
             success: { note: 'The aircraft is 20 minutes out. You wait on the shoulder while he keeps bleeding inside.', hp: -15 },
             fail: { note: 'Dispatch says the aircraft is 20 minutes out. You cancel it and drive.' } },
         ],
-        teach: 'The only fix for internal bleeding is a surgeon or interventional radiology. A hypotensive, high-energy trauma patient goes to the highest-level trauma center the field triage guidelines point to. Don\'t trade a short drive to the wrong hospital for a long delay at the right one. Don\'t wait on scene for a helicopter when ground transport is faster.',
+        teach: 'The only fix for internal bleeding is a surgeon or interventional radiology. A hypotensive, high-energy trauma patient goes to the highest-level trauma center your trauma triage tool points to. Don\'t trade a short drive to the wrong hospital for a long delay at the right one. Don\'t wait on scene for an aircraft when road transport is faster.',
       },
       {
         id: 'twist', type: 'scene', title: 'Something Changes',
-        text: 'In the back of the rig, the pulse ox starts to fall: 90, 87, 85. He\'s fighting to breathe and grabbing at the left side of his chest. Heart rate 144. Pressure 70/40. EtCO₂ is dropping. You listen: no breath sounds on the left. His trachea is midline and his neck veins are flat.',
+        text: 'In the back of the ambulance, the pulse ox starts to fall: 90, 87, 85. He\'s fighting to breathe and grabbing at the left side of his chest. Heart rate 144. Pressure 70/40. EtCO₂ is dropping. You listen: no breath sounds on the left. His trachea is midline and his neck veins are flat.',
         vitals: { hr: 144, sbp: 70, dbp: 40, spo2: 85, rr: 34, etco2: 21 },
         hp: -15,
       },
@@ -171,12 +171,12 @@
             fail: { note: 'The line is positional and won\'t run. You look up from it and listen to his chest again.', next: 'decompress' } },
           { k: 'C', text: 'Intubate and start bagging', grade: 'wrong', check: { ab: 'DEX', dc: 12 },
             success: { note: 'The tube goes in. Every squeeze of the bag pushes more air into his chest. BP 58/30.', vitals: { sbp: 58, dbp: 30, spo2: 80, etco2: 16 }, hp: -25, next: 'decompress' },
-            fail: { note: 'You can\'t get a view with the rig bouncing. Your partner stops you.', hp: -5, next: 'decompress' } },
+            fail: { note: 'You can\'t get a view with the ambulance bouncing. Your partner stops you.', hp: -5, next: 'decompress' } },
           { k: 'D', text: 'Recheck the tourniquet and binder for bleeding', grade: 'ok', check: { ab: 'WIS', dc: 8 },
             success: { note: 'Both are holding. Whatever this is, it\'s in his chest.', hp: -5, next: 'decompress' },
             fail: { note: 'They look fine, but you lose a minute checking.', hp: -10, next: 'decompress' } },
         ],
-        teach: 'A tension pneumothorax is a one-way valve. Air gets into the pleural space and can\'t get out. The pressure builds, the lung collapses, and the mediastinum shifts until the great veins kink and venous return falls. That\'s obstructive shock. In a patient who\'s also bleeding, the neck veins can stay flat, and tracheal deviation is late, so don\'t wait for either. Decompress the affected side per protocol: 2nd intercostal space, midclavicular line, or 4th–5th space, anterior axillary line. Positive-pressure ventilation makes it worse until you do.',
+        teach: 'A tension pneumothorax is a one-way valve. Air gets into the pleural space and can\'t get out. The pressure builds, the lung collapses, and the mediastinum shifts until the great veins kink and venous return falls. That\'s obstructive shock. In a patient who\'s also bleeding, the neck veins can stay flat, and tracheal deviation is late, so don\'t wait for either. Decompress the affected side per protocol: 2nd intercostal space at the midclavicular line, or the 4th–5th space between the anterior and mid-axillary lines. Positive-pressure ventilation makes it worse until you do.',
       },
       {
         id: 'decompress', type: 'scene', title: 'Your Partner Steps In', branch: true,

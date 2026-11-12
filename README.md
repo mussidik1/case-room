@@ -7,12 +7,14 @@ Live EMS patient cases, played like a tabletop RPG. The instructor runs the DM s
 
 No accounts, no app installs, no server to run.
 
+The cases are written to work anywhere. They don't name real places. Destinations are described by what a hospital can do (PCI, thrombectomy, major trauma) rather than by local designation. Glucose is given in mg/dL and mmol/L. Drug doses appear only where the dose itself is the question, and the lessons point back to local protocol.
+
 ## Cases
 
 | Case | Topic | Level | Time |
 |---|---|---|---|
 | Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement: read the 12-lead, V4R, the nitro trap, complete heart block, pacing | ALS | ~20 min |
-| Down on Route 40 | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
+| Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
 | Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, AF as the clot source, LAMS scoring, localization, the penumbra, airway after vomiting, destination | BLS/ALS | ~24 min |
 | The Birthday Party | Pediatric anaphylaxis: shark-fin capnography, IM epinephrine, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
 
