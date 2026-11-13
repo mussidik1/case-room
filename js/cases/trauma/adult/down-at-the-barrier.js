@@ -9,6 +9,7 @@
     level: 'ALS',
     topic: 'trauma',
     age: 'adult',
+    subtopic: 'multisystem',
     minutes: 25,
     hp: 100,
     steps: [

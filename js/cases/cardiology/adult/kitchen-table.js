@@ -22,6 +22,7 @@
     level: 'ALS',
     topic: 'cardiology', // National Registry (NCCP 2025) topic: airway | cardiology | trauma | medical | operations
     age: 'adult', // adult | pediatric
+    subtopic: 'acs', // a heading id from js/topics.js
     minutes: 20,
     hp: 100,
     steps: [

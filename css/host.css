@@ -84,8 +84,12 @@ main { min-height: 0; position: relative; }
 .sub-h { display: flex; align-items: center; gap: .45em; color: var(--gold2); font-weight: 700; font-size: 1.05em; letter-spacing: .03em; }
 .sub-h .fold-i { width: 1.3em; height: 1.3em; fill: none; stroke: var(--gold); stroke-width: 1.5; stroke-linejoin: round; }
 .sub-h small { margin-left: auto; color: var(--muted); font-weight: 400; font-size: .78em; letter-spacing: 0; }
-.sub-cases { display: grid; gap: .6em; }
-.sub-empty { margin: 0; padding: .9em 1em; border: 1px dashed var(--line); border-radius: .7em; color: var(--muted); font-style: italic; }
+.sub-cases { display: grid; gap: .15em; }
+.subtopic { display: grid; gap: .4em; }
+.st-h { display: flex; align-items: baseline; gap: .5em; padding: .35em 0 .2em; border-bottom: 1px solid #2c2717; color: var(--text); font-weight: 700; font-size: .95em; }
+.st-h small { margin-left: auto; color: var(--gold2); font-weight: 700; }
+.subtopic.st-none .st-h { padding: .12em 0; border-bottom-color: transparent; color: #626a78; font-weight: 400; font-size: .86em; }
+.st-cases { display: grid; gap: .55em; margin: .15em 0 .55em; }
 @media (max-width: 760px) { .subfolders { grid-template-columns: 1fr; } }
 .settings { display: grid; gap: .6em; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: .6em 1em; flex-wrap: wrap; }

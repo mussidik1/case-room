@@ -11,16 +11,16 @@ The cases are written to work anywhere. They don't name real places. Destination
 
 ## Cases
 
-The setup screen groups cases into folders by National Registry recertification topic (the NCCP 2025 model: Airway, Cardiology, Trauma, Medical, Operations). Each topic has an Adult and a Pediatric subfolder. Empty folders are ready for new cases.
+The setup screen groups cases into folders by National Registry recertification topic (the NCCP 2025 model: Airway, Cardiology, Trauma, Medical, Operations), so each case maps straight to recert credit. Each topic has an Adult and a Pediatric folder. Inside those, cases sit under body-system headings, the way emergency medicine organizes its training; trauma is grouped by body region, as in ATLS and PHTLS. Empty headings show dimmed, ready for new cases. The full list of headings lives in `js/topics.js`.
 
 | Folder | Case | What it covers | Level | Time |
 |---|---|---|---|---|
-| Cardiology › Adult | Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement: read the 12-lead, V4R, the nitro trap, complete heart block, pacing | ALS | ~20 min |
-| Cardiology › Adult | Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, AF as the clot source, LAMS scoring, localization, the penumbra, airway after vomiting, destination | BLS/ALS | ~24 min |
-| Trauma › Adult | Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
-| Medical › Pediatric | The Birthday Party | Pediatric anaphylaxis: IM epinephrine, positioning, shark-fin capnography, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
+| Cardiology › Acute coronary syndromes · Adult | Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement: read the 12-lead, V4R, the nitro trap, complete heart block, pacing | ALS | ~20 min |
+| Medical › Neurologic · Adult | Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, AF as the clot source, LAMS scoring, localization, the penumbra, airway after vomiting, destination | BLS/ALS | ~24 min |
+| Trauma › Multisystem · Adult | Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
+| Medical › Allergy & immunology · Pediatric | The Birthday Party | Pediatric anaphylaxis: IM epinephrine, positioning, shark-fin capnography, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
 
-Stroke sits under Cardiology, where the Registry's 2016 model listed it. The 2025 model names only the broad topics, so move it if your program files stroke under Medical. The results CSV lists the Registry topic for each case played.
+The 2025 model names only the five broad topics, with no required subtopics, and counts pediatric content inside them. The results CSV lists the folder for each case played.
 
 ## Running a game
 
@@ -92,7 +92,7 @@ STR is lifting, CPR, and extrication. DEX is IVs, leads, and procedures. CON is 
 
 ## Writing a new case
 
-Copy `js/cases/cardiology/adult/kitchen-table.js` into the folder for your case's topic and age group, for example `js/cases/trauma/pediatric/`. Set `topic` (`airway`, `cardiology`, `trauma`, `medical`, or `operations`) and `age` (`adult` or `pediatric`) to match the folder, then add a `<script>` line for the file in `host.html` next to the others. The case shows up in that folder on the setup screen. Each case is a list of steps:
+Copy `js/cases/cardiology/adult/kitchen-table.js` into the folder for your case's topic and age group, for example `js/cases/trauma/pediatric/`. Set `topic` (`airway`, `cardiology`, `trauma`, `medical`, or `operations`) and `age` (`adult` or `pediatric`) to match the folder, and set `subtopic` to one of that topic's heading ids in `js/topics.js` (for example `neurologic` or `toxicology` under Medical). Then add a `<script>` line for the file in `host.html` next to the others. The case shows up under its heading on the setup screen. Each case is a list of steps:
 
 - `scene`: read-aloud text. Optional `vitals` (sets the monitor) and `hp` (+/-).
 - `roll`: everyone rolls one check, e.g. `{ ab: 'WIS', dc: 12 }`, with `success` and `fail` outcomes.

@@ -9,6 +9,7 @@
     level: 'BLS/ALS',
     topic: 'medical',
     age: 'pediatric',
+    subtopic: 'allergy',
     minutes: 18,
     hp: 100,
     steps: [

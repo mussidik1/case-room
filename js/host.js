@@ -1009,22 +1009,22 @@
     bindSettings(el);
   }
 
-  /* ---- case library: Registry topic folders, each with Adult and Pediatric subfolders ---- */
-  const TOPICS = [
-    { id: 'airway', name: 'Airway' },
-    { id: 'cardiology', name: 'Cardiology' },
-    { id: 'trauma', name: 'Trauma' },
-    { id: 'medical', name: 'Medical' },
-    { id: 'operations', name: 'Operations' },
-  ];
-  const AGES = [{ id: 'adult', name: 'Adult' }, { id: 'pediatric', name: 'Pediatric' }];
+  /* ---- case library: Registry topic folders → Adult / Pediatric → body-system headings (js/topics.js) ---- */
+  const TOPICS = window.CR_TOPICS || [];
+  const AGES = window.CR_AGES || [{ id: 'adult', name: 'Adult' }, { id: 'pediatric', name: 'Pediatric' }];
   const FOLDER_ICON = '<svg class="fold-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.7l2 2.2h8.3A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
   function topicOf(c) { return TOPICS.some((t) => t.id === c.topic) ? c.topic : 'other'; }
   function ageOf(c) { return c.age === 'pediatric' ? 'pediatric' : 'adult'; }
-  function nCases(n) { return n + (n === 1 ? ' case' : ' cases'); }
-  function folderName(c, sep) {
+  function subtopicOf(c) {
     const t = TOPICS.find((x) => x.id === c.topic);
-    return (t ? t.name : 'Other') + (sep || ' · ') + (ageOf(c) === 'pediatric' ? 'Pediatric' : 'Adult');
+    return (t && t.subtopics.find((s) => s.id === c.subtopic)) || null;
+  }
+  function nCases(n) { return n + (n === 1 ? ' case' : ' cases'); }
+  // e.g. "Cardiology › Acute coronary syndromes · Adult"
+  function folderName(c, ageSep, ageEnd) {
+    const t = TOPICS.find((x) => x.id === c.topic);
+    const s = subtopicOf(c);
+    return (t ? t.name : 'Other') + (s ? ' › ' + s.name : '') + (ageSep || ' · ') + (ageOf(c) === 'pediatric' ? 'Pediatric' : 'Adult') + (ageEnd || '');
   }
   function caseCard(c) {
     return `
@@ -1034,9 +1034,22 @@
         <span class="case-m">${esc(c.level || '')} · ~${esc(c.minutes || 15)} min · ${c.steps.filter((s) => s.type === 'choice' && !s.branch).length} decisions</span>
       </button>`;
   }
+  // Every heading shows, so the whole map is visible. Empty ones are dimmed and take one line.
+  function headingsHtml(topic, list) {
+    const t = TOPICS.find((x) => x.id === topic);
+    const subs = t ? t.subtopics : [];
+    const rows = subs.map((s) => ({ s, cases: list.filter((c) => c.subtopic === s.id) }));
+    const other = list.filter((c) => !subs.some((s) => s.id === c.subtopic));
+    if (other.length) rows.push({ s: { id: 'other', name: 'Other' }, cases: other });
+    return rows.map((r) => `
+            <div class="subtopic${r.cases.length ? '' : ' st-none'}" data-subtopic="${esc(r.s.id)}">
+              <div class="st-h"><span>${esc(r.s.name)}</span>${r.cases.length ? `<small>${r.cases.length}</small>` : ''}</div>${r.cases.length ? `
+              <div class="st-cases">${r.cases.map(caseCard).join('')}</div>` : ''}
+            </div>`).join('');
+  }
   function libraryHtml() {
     const topics = TOPICS.slice();
-    if (CASES.some((c) => topicOf(c) === 'other')) topics.push({ id: 'other', name: 'Other' });
+    if (CASES.some((c) => topicOf(c) === 'other')) topics.push({ id: 'other', name: 'Other', subtopics: [] });
     const open = G.caseDef ? topicOf(G.caseDef) : topics[0].id;
     return `
       <div class="folders" role="tablist" aria-label="Registry topics">${topics.map((t) => `
@@ -1049,7 +1062,8 @@
         return `
         <div class="subfolder">
           <div class="sub-h">${FOLDER_ICON}<span>${a.name}</span><small>${nCases(list.length)}</small></div>
-          <div class="sub-cases">${list.length ? list.map(caseCard).join('') : '<p class="sub-empty">No cases here yet.</p>'}</div>
+          <div class="sub-cases">${headingsHtml(t.id, list)}
+          </div>
         </div>`;
       }).join('')}
       </div>`).join('')}`;
@@ -1474,7 +1488,7 @@
       ['Exported', stamp(new Date())],
       ['Room', G.room || ''],
       ['Cases played', cases.join('; ') || (G.caseDef ? G.caseDef.title : '')],
-      ['Registry topics', [...new Set((cases.length ? cases.map((t) => CASES.find((c) => c.title === t)) : [G.caseDef]).filter(Boolean).map((c) => folderName(c, ' (') + ')'))].join('; ')],
+      ['Registry topics', [...new Set((cases.length ? cases.map((t) => CASES.find((c) => c.title === t)) : [G.caseDef]).filter(Boolean).map((c) => folderName(c, ' (', ')')))].join('; ')],
       ['Last patient', G.finished ? (G.hp > 0 ? `Survived (${Math.round(G.hp)}/${G.hpMax} HP)` : `Crashed (0/${G.hpMax} HP)`) : `In progress (${Math.round(G.hp)}/${G.hpMax} HP)`],
       ['Players', ps.length],
       [],
