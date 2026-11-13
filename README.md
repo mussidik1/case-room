@@ -22,6 +22,7 @@ The setup screen groups cases into folders by National Registry recertification 
 | Trauma › Multisystem · Adult | Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
 | Cardiology › Dysrhythmias · Pediatric | Won't Feed | Infant SVT: telling it from sinus tachycardia, ice to the face, adenosine technique and the expected pause, why it comes back, then synchronized cardioversion when she crashes | ALS | ~20 min |
 | Medical › Allergy & immunology · Pediatric | The Birthday Party | Pediatric anaphylaxis: IM epinephrine, positioning, shark-fin capnography, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
+| Trauma › Abdomen & pelvis · Pediatric | Handlebars | A child's handlebar injury: compensated shock with a normal blood pressure, the spleen and referred shoulder pain, choosing a center that treats injured children, fluid by weight, pain relief, and a falling heart rate as the sign of collapse | BLS/ALS | ~20 min |
 
 The 2025 model names only broad topics, with no required subtopics, and counts pediatric content inside them. The results CSV lists the folder for each case played.
 
