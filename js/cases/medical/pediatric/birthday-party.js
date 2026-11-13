@@ -7,6 +7,8 @@
     title: 'The Birthday Party',
     tagline: 'Pediatric anaphylaxis',
     level: 'BLS/ALS',
+    topic: 'medical',
+    age: 'pediatric',
     minutes: 18,
     hp: 100,
     steps: [

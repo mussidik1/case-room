@@ -20,6 +20,8 @@
     title: 'Pressure at the Kitchen Table',
     tagline: 'Inferior STEMI · right ventricle',
     level: 'ALS',
+    topic: 'cardiology', // National Registry (NCCP 2025) topic: airway | cardiology | trauma | medical | operations
+    age: 'adult', // adult | pediatric
     minutes: 20,
     hp: 100,
     steps: [

@@ -75,7 +75,7 @@
       <polygon points="50,3 93,27 93,73 50,97 7,73 7,27" fill="${fill}" stroke="${stroke}" stroke-width="3.5" stroke-linejoin="round"/>
       <polygon points="50,22 76,66 24,66" fill="none" stroke="${stroke}" stroke-opacity=".55" stroke-width="2.2" stroke-linejoin="round"/>
       <path d="M50 3 L50 22 M93 27 L76 66 M7 27 L24 66 M50 97 L24 66 M50 97 L76 66 M7 73 L24 66 M93 73 L76 66 M7 27 L50 22 L93 27" fill="none" stroke="${stroke}" stroke-opacity=".38" stroke-width="1.8"/>
-      <text x="50" y="${v.length > 1 ? 57 : 58}" text-anchor="middle" dominant-baseline="middle" font-size="${v.length > 1 ? 26 : 30}" font-weight="800" fill="${ink}" font-family="system-ui, sans-serif">${v}</text>
+      <text x="50" y="${v.length > 1 ? 57 : 58}" text-anchor="middle" dominant-baseline="middle" font-size="${v.length > 1 ? 26 : 30}" font-weight="800" fill="${ink}" font-family="Cardo, Georgia, serif">${v}</text>
     </svg>`;
   }
 

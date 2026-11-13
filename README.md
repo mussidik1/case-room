@@ -11,12 +11,16 @@ The cases are written to work anywhere. They don't name real places. Destination
 
 ## Cases
 
-| Case | Topic | Level | Time |
-|---|---|---|---|
-| Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement: read the 12-lead, V4R, the nitro trap, complete heart block, pacing | ALS | ~20 min |
-| Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
-| Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, AF as the clot source, LAMS scoring, localization, the penumbra, airway after vomiting, destination | BLS/ALS | ~24 min |
-| The Birthday Party | Pediatric anaphylaxis: shark-fin capnography, IM epinephrine, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
+The setup screen groups cases into folders by National Registry recertification topic (the NCCP 2025 model: Airway, Cardiology, Trauma, Medical, Operations). Each topic has an Adult and a Pediatric subfolder. Empty folders are ready for new cases.
+
+| Folder | Case | What it covers | Level | Time |
+|---|---|---|---|---|
+| Cardiology › Adult | Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement: read the 12-lead, V4R, the nitro trap, complete heart block, pacing | ALS | ~20 min |
+| Cardiology › Adult | Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, AF as the clot source, LAMS scoring, localization, the penumbra, airway after vomiting, destination | BLS/ALS | ~24 min |
+| Trauma › Adult | Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
+| Medical › Pediatric | The Birthday Party | Pediatric anaphylaxis: IM epinephrine, positioning, shark-fin capnography, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
+
+Stroke sits under Cardiology, where the Registry's 2016 model listed it. The 2025 model names only the broad topics, so move it if your program files stroke under Medical. The results CSV lists the Registry topic for each case played.
 
 ## Running a game
 
@@ -88,7 +92,7 @@ STR is lifting, CPR, and extrication. DEX is IVs, leads, and procedures. CON is 
 
 ## Writing a new case
 
-Copy `js/cases/kitchen-table.js` to a new file, edit it, and add a `<script>` line for it in `host.html` next to the existing case. Each case is a list of steps:
+Copy `js/cases/cardiology/adult/kitchen-table.js` into the folder for your case's topic and age group, for example `js/cases/trauma/pediatric/`. Set `topic` (`airway`, `cardiology`, `trauma`, `medical`, or `operations`) and `age` (`adult` or `pediatric`) to match the folder, then add a `<script>` line for the file in `host.html` next to the others. The case shows up in that folder on the setup screen. Each case is a list of steps:
 
 - `scene`: read-aloud text. Optional `vitals` (sets the monitor) and `hp` (+/-).
 - `roll`: everyone rolls one check, e.g. `{ ab: 'WIS', dc: 12 }`, with `success` and `fail` outcomes.
@@ -110,5 +114,7 @@ Monitor rhythms: `sinus`, `avb3` (complete heart block), `paced`, `afib`, `vtach
 ## How it connects
 
 The DM screen holds the game. It sends the current screen to the phones through three free public message relays at once (EMQX, HiveMQ, and Eclipse), and phones use whichever ones they can reach. Messages pass through public servers, so use first names or call signs, and never enter patient information. If a building's Wi-Fi blocks the relays, phones on cellular data still work, and so does a phone hotspot for the DM laptop.
+
+Type is set in Cardo by David J. Perry, bundled with the site under the SIL Open Font License (`fonts/OFL.txt`), so it loads even where font services are blocked.
 
 *Teaching simulation. Follow your local protocols.*

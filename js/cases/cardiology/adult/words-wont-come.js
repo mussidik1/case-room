@@ -7,6 +7,8 @@
     title: 'Words Won\'t Come',
     tagline: 'Stroke · large vessel occlusion',
     level: 'BLS/ALS',
+    topic: 'cardiology',
+    age: 'adult',
     minutes: 24,
     hp: 100,
     steps: [

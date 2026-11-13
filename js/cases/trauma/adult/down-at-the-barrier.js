@@ -7,6 +7,8 @@
     title: 'Down at the Barrier',
     tagline: 'Hemorrhagic shock · whole blood',
     level: 'ALS',
+    topic: 'trauma',
+    age: 'adult',
     minutes: 25,
     hp: 100,
     steps: [

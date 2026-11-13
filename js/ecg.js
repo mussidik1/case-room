@@ -353,7 +353,7 @@
     ctx.lineCap = 'round';
     const label = (txt, x, y) => {
       ctx.fillStyle = '#1b1b1b';
-      ctx.font = `600 ${Math.max(10, 3.4 * mm)}px system-ui, sans-serif`;
+      ctx.font = `700 ${Math.max(10, 3.4 * mm)}px Cardo, Georgia, serif`;
       ctx.fillText(txt, x, y);
     };
     const trace = () => { ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1.1, 0.32 * mm); };

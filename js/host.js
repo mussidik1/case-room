@@ -984,13 +984,8 @@
         </div>
         ${saved ? `<div class="resume"><span>Unfinished game in room <b>${esc(saved.room)}</b> · ${esc((CASES.find((c) => c.id === saved.caseId) || {}).title || '')}</span><button type="button" id="btnResume">Resume</button></div>` : ''}
         <h2>Choose a case</h2>
-        <div class="cases">${CASES.map((c) => `
-          <button type="button" class="case ${G.caseDef && G.caseDef.id === c.id ? 'on' : ''}" data-id="${esc(c.id)}">
-            <span class="case-t">${esc(c.title)}</span>
-            <span class="case-s">${esc(c.tagline || '')}</span>
-            <span class="case-m">${esc(c.level || '')} · ~${esc(c.minutes || 15)} min · ${c.steps.filter((s) => s.type === 'choice' && !s.branch).length} decisions</span>
-          </button>`).join('')}
-        </div>
+        <p class="lib-note">Grouped by National Registry recertification topic (NCCP 2025).</p>
+        ${libraryHtml()}
         <h2>Settings</h2>
         <div class="settings">
           <label class="row"><span>Room code</span><span class="code-in"><input id="setCode" maxlength="8" autocomplete="off" spellcheck="false" placeholder="Auto"><button type="button" id="btnNewCode">New</button></span></label>
@@ -1004,15 +999,68 @@
     $('#btnNewCode').onclick = () => { $('#setCode').value = newCode(); };
     $('#btnOpen').onclick = () => { monitor.enableSound(G.settings.sound); openRoom(); };
     if (saved) $('#btnResume').onclick = () => { monitor.enableSound(G.settings.sound); resumeGame(saved); };
+    for (const f of $$('.folder', el)) {
+      f.onclick = () => {
+        for (const x of $$('.folder', el)) { x.classList.toggle('on', x === f); x.setAttribute('aria-selected', String(x === f)); }
+        for (const p of $$('.subfolders', el)) p.hidden = p.dataset.topic !== f.dataset.topic;
+      };
+    }
     for (const b of $$('.case', el)) b.onclick = () => { G.caseDef = CASES.find((c) => c.id === b.dataset.id); $$('.case', el).forEach((x) => x.classList.toggle('on', x === b)); };
     bindSettings(el);
+  }
+
+  /* ---- case library: Registry topic folders, each with Adult and Pediatric subfolders ---- */
+  const TOPICS = [
+    { id: 'airway', name: 'Airway' },
+    { id: 'cardiology', name: 'Cardiology' },
+    { id: 'trauma', name: 'Trauma' },
+    { id: 'medical', name: 'Medical' },
+    { id: 'operations', name: 'Operations' },
+  ];
+  const AGES = [{ id: 'adult', name: 'Adult' }, { id: 'pediatric', name: 'Pediatric' }];
+  const FOLDER_ICON = '<svg class="fold-i" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5h4.7l2 2.2h8.3A1.5 1.5 0 0 1 21 8.7v9.8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
+  function topicOf(c) { return TOPICS.some((t) => t.id === c.topic) ? c.topic : 'other'; }
+  function ageOf(c) { return c.age === 'pediatric' ? 'pediatric' : 'adult'; }
+  function nCases(n) { return n + (n === 1 ? ' case' : ' cases'); }
+  function folderName(c, sep) {
+    const t = TOPICS.find((x) => x.id === c.topic);
+    return (t ? t.name : 'Other') + (sep || ' · ') + (ageOf(c) === 'pediatric' ? 'Pediatric' : 'Adult');
+  }
+  function caseCard(c) {
+    return `
+      <button type="button" class="case ${G.caseDef && G.caseDef.id === c.id ? 'on' : ''}" data-id="${esc(c.id)}">
+        <span class="case-t">${esc(c.title)}</span>
+        <span class="case-s">${esc(c.tagline || '')}</span>
+        <span class="case-m">${esc(c.level || '')} · ~${esc(c.minutes || 15)} min · ${c.steps.filter((s) => s.type === 'choice' && !s.branch).length} decisions</span>
+      </button>`;
+  }
+  function libraryHtml() {
+    const topics = TOPICS.slice();
+    if (CASES.some((c) => topicOf(c) === 'other')) topics.push({ id: 'other', name: 'Other' });
+    const open = G.caseDef ? topicOf(G.caseDef) : topics[0].id;
+    return `
+      <div class="folders" role="tablist" aria-label="Registry topics">${topics.map((t) => `
+        <button type="button" class="folder ${t.id === open ? 'on' : ''}" data-topic="${t.id}" role="tab" aria-selected="${t.id === open}">
+          ${FOLDER_ICON}<span class="fold-n">${esc(t.name)}</span><span class="fold-c">${nCases(CASES.filter((c) => topicOf(c) === t.id).length)}</span>
+        </button>`).join('')}
+      </div>${topics.map((t) => `
+      <div class="subfolders" data-topic="${t.id}" role="tabpanel" ${t.id === open ? '' : 'hidden'}>${AGES.map((a) => {
+        const list = CASES.filter((c) => topicOf(c) === t.id && ageOf(c) === a.id);
+        return `
+        <div class="subfolder">
+          <div class="sub-h">${FOLDER_ICON}<span>${a.name}</span><small>${nCases(list.length)}</small></div>
+          <div class="sub-cases">${list.length ? list.map(caseCard).join('') : '<p class="sub-empty">No cases here yet.</p>'}</div>
+        </div>`;
+      }).join('')}
+      </div>`).join('')}`;
   }
 
   /* ---- lobby ---- */
   function renderLobby() {
     const el = $('#vLobby');
-    if (el.dataset.room !== G.room) {
-      el.dataset.room = G.room;
+    const key = G.room + '|' + (G.caseDef ? G.caseDef.id : '');
+    if (el.dataset.key !== key) { // rebuild when the room or the case changes
+      el.dataset.key = key;
       el.innerHTML = `
         <div class="lobby">
           <div class="join">
@@ -1022,7 +1070,7 @@
             <div class="code-big"><span>Room</span><b>${esc(G.room)}</b></div>
           </div>
           <div class="roster">
-            <div class="roster-h"><h2>${esc(G.caseDef ? G.caseDef.title : '')}</h2><span class="muted">${esc(G.caseDef ? G.caseDef.tagline : '')}</span></div>
+            <div class="roster-h">${G.caseDef ? `<div class="kicker">${esc(folderName(G.caseDef))}</div>` : ''}<h2>${esc(G.caseDef ? G.caseDef.title : '')}</h2><span class="muted">${esc(G.caseDef ? G.caseDef.tagline : '')}</span></div>
             <div class="party" id="lobbyParty"></div>
             <div class="lobby-actions">
               <button type="button" id="btnBots" class="ghost">+ Practice party (6 bots)</button>
@@ -1426,6 +1474,7 @@
       ['Exported', stamp(new Date())],
       ['Room', G.room || ''],
       ['Cases played', cases.join('; ') || (G.caseDef ? G.caseDef.title : '')],
+      ['Registry topics', [...new Set((cases.length ? cases.map((t) => CASES.find((c) => c.title === t)) : [G.caseDef]).filter(Boolean).map((c) => folderName(c, ' (') + ')'))].join('; ')],
       ['Last patient', G.finished ? (G.hp > 0 ? `Survived (${Math.round(G.hp)}/${G.hpMax} HP)` : `Crashed (0/${G.hpMax} HP)`) : `In progress (${Math.round(G.hp)}/${G.hpMax} HP)`],
       ['Players', ps.length],
       [],
