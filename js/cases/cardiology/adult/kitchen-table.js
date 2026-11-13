@@ -18,7 +18,7 @@
   window.CR_CASES.push({
     id: 'kitchen-table',
     title: 'Pressure at the Kitchen Table',
-    tagline: 'Inferior STEMI · right ventricle',
+    tagline: 'Chest pain at home',
     level: 'ALS',
     topic: 'cardiology', // National Registry (NCCP 2025) topic: airway | cardiology | trauma | medical
     age: 'adult', // adult | pediatric

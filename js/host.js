@@ -1062,6 +1062,12 @@
     const s = subtopicOf(c);
     return (t ? t.name : 'Other') + (s ? ' › ' + s.name : '') + (ageSep || ' · ') + (ageOf(c) === 'pediatric' ? 'Pediatric' : 'Adult') + (ageEnd || '');
   }
+  // The lobby is projected while students join, so it shows only "Medical · Adult": the
+  // body-system heading (e.g. Endocrine & metabolic) can give the diagnosis away.
+  function lobbyLabel(c) {
+    const t = TOPICS.find((x) => x.id === c.topic);
+    return (t ? t.name : 'Other') + ' · ' + (ageOf(c) === 'pediatric' ? 'Pediatric' : 'Adult');
+  }
   function caseCard(c) {
     return `
       <button type="button" class="case ${G.caseDef && G.caseDef.id === c.id ? 'on' : ''}" data-id="${esc(c.id)}">
@@ -1120,7 +1126,7 @@
             <div class="code-big"><span>Room</span><b>${esc(G.room)}</b></div>
           </div>
           <div class="roster">
-            <div class="roster-h">${G.caseDef ? `<div class="kicker">${esc(folderName(G.caseDef))}</div>` : ''}<h2>${esc(G.caseDef ? G.caseDef.title : '')}</h2><span class="muted">${esc(G.caseDef ? G.caseDef.tagline : '')}</span></div>
+            <div class="roster-h">${G.caseDef ? `<div class="kicker">${esc(lobbyLabel(G.caseDef))}</div>` : ''}<h2>${esc(G.caseDef ? G.caseDef.title : '')}</h2><span class="muted">${esc(G.caseDef ? G.caseDef.tagline : '')}</span></div>
             <div class="party" id="lobbyParty"></div>
             <div class="lobby-actions">
               <button type="button" id="btnBots" class="ghost">+ Practice party (6 bots)</button>

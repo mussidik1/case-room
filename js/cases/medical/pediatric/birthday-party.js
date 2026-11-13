@@ -5,7 +5,7 @@
   window.CR_CASES.push({
     id: 'birthday-party',
     title: 'The Birthday Party',
-    tagline: 'Pediatric anaphylaxis',
+    tagline: 'Pediatric allergic reaction',
     level: 'BLS/ALS',
     topic: 'medical',
     age: 'pediatric',

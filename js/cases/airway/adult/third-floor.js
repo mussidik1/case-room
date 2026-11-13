@@ -6,7 +6,7 @@
   window.CR_CASES.push({
     id: 'third-floor',
     title: 'Third Floor, No Elevator',
-    tagline: 'Severe asthma · respiratory failure',
+    tagline: 'Adult asthma attack',
     level: 'BLS/ALS',
     topic: 'airway',
     age: 'adult',

@@ -107,6 +107,8 @@ Copy `js/cases/cardiology/adult/kitchen-table.js` into the folder for your case'
 - `choice`: a decision with options. Each option has `grade` (`best` / `ok` / `wrong`), a `check`, and `success` / `fail` outcomes. Add `teach` for the lesson shown after the vote. An `ecg` field shows a 12-lead. Write the options in any order, since they're shuffled each game. Never refer to an option by its letter, and keep options similar in length and form so the right one doesn't stand out. Keep step titles from hinting at the answer, because they show during the vote.
 - `debrief`: the wrap-up.
 
+The `tagline` and the case's topic show in the lobby while students join, so a tagline says only what the dispatch already says ("Chest pain at home"), never the diagnosis or how the case ends.
+
 A case can set `alarms` for the monitor, e.g. `{ hr: [100, 180], rr: [20, 55], sbp: 70 }` for an infant, so normal numbers for that age don't flash red. Adult limits are the default.
 
 An outcome can include:

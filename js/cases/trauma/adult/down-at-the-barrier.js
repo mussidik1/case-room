@@ -5,7 +5,7 @@
   window.CR_CASES.push({
     id: 'down-at-the-barrier',
     title: 'Down at the Barrier',
-    tagline: 'Hemorrhagic shock · whole blood',
+    tagline: 'Motorcycle crash',
     level: 'ALS',
     topic: 'trauma',
     age: 'adult',

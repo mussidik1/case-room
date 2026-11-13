@@ -5,7 +5,7 @@
   window.CR_CASES.push({
     id: 'words-wont-come',
     title: 'Words Won\'t Come',
-    tagline: 'Stroke · large vessel occlusion',
+    tagline: 'Not making sense',
     level: 'BLS/ALS',
     topic: 'medical',
     age: 'adult',

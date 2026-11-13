@@ -6,7 +6,7 @@
   window.CR_CASES.push({
     id: 'match-point',
     title: 'Match Point',
-    tagline: 'Cardiac arrest · post-ROSC care',
+    tagline: 'Collapse at a sports hall',
     level: 'ALS',
     topic: 'cardiology',
     age: 'adult',
