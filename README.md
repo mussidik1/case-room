@@ -17,8 +17,10 @@ The setup screen groups cases into folders by National Registry recertification 
 |---|---|---|---|---|
 | Airway › Asthma & COPD · Adult | Third Floor, No Elevator | Life-threatening asthma: the silent chest, a "normal" CO₂ in a fast breather, nebs then magnesium, no sedation, assisting a tiring patient instead of CPAP, slow bagging, and letting trapped air out when the pressure crashes | BLS/ALS | ~20 min |
 | Cardiology › Acute coronary syndromes · Adult | Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement: read the 12-lead, V4R, the nitro trap, complete heart block, pacing | ALS | ~20 min |
+| Cardiology › Cardiac arrest & post-ROSC · Adult | Match Point | Witnessed VF arrest: pads on during CPR, shock then straight back on the chest, reading EtCO₂ during CPR, refractory VF, the EtCO₂ surge at ROSC, ventilation and oxygen targets, an anterior STEMI on the post-ROSC 12-lead, and post-arrest low blood pressure | ALS | ~25 min |
 | Medical › Neurologic · Adult | Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, AF as the clot source, LAMS scoring, localization, the penumbra, airway after vomiting, destination | BLS/ALS | ~24 min |
 | Trauma › Multisystem · Adult | Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
+| Cardiology › Dysrhythmias · Pediatric | Won't Feed | Infant SVT: telling it from sinus tachycardia, ice to the face, adenosine technique and the expected pause, why it comes back, then synchronized cardioversion when she crashes | ALS | ~20 min |
 | Medical › Allergy & immunology · Pediatric | The Birthday Party | Pediatric anaphylaxis: IM epinephrine, positioning, shark-fin capnography, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
 
 The 2025 model names only broad topics, with no required subtopics, and counts pediatric content inside them. The results CSV lists the folder for each case played.
@@ -100,6 +102,8 @@ Copy `js/cases/cardiology/adult/kitchen-table.js` into the folder for your case'
 - `choice`: a decision with options. Each option has `grade` (`best` / `ok` / `wrong`), a `check`, and `success` / `fail` outcomes. Add `teach` for the lesson shown after the vote. An `ecg` field shows a 12-lead. Write the options in any order, since they're shuffled each game. Never refer to an option by its letter, and keep options similar in length and form so the right one doesn't stand out. Keep step titles from hinting at the answer, because they show during the vote.
 - `debrief`: the wrap-up.
 
+A case can set `alarms` for the monitor, e.g. `{ hr: [100, 180], rr: [20, 55], sbp: 70 }` for an infant, so normal numbers for that age don't flash red. Adult limits are the default.
+
 An outcome can include:
 - `note`: what happens
 - `hp`: the change in patient HP
@@ -108,7 +112,7 @@ An outcome can include:
 - `pause`: seconds of no QRS
 - `ecg`: a strip to show
 
-A step marked `branch: true` is skipped unless an outcome jumps to it with `next`.
+A step marked `branch: true` is skipped unless an outcome jumps to it with `next`. Every path through a case should leave the monitor matching the next prompt, so after a branch, set any numbers the next step quotes.
 
 Monitor rhythms: `sinus`, `avb3` (complete heart block), `paced`, `afib`, `vtach`, `vfib`, `asystole`, `junctional`, `none`. Set `st` for ST elevation in lead II (in mV) and `ar` for the atrial rate in heart block.
 
