@@ -15,6 +15,7 @@ The setup screen groups cases into folders by National Registry recertification 
 
 | Folder | Case | What it covers | Level | Time |
 |---|---|---|---|---|
+| Airway › Asthma & COPD · Adult | Third Floor, No Elevator | Life-threatening asthma: the silent chest, a "normal" CO₂ in a fast breather, nebs then magnesium, no sedation, assisting a tiring patient instead of CPAP, slow bagging, and letting trapped air out when the pressure crashes | BLS/ALS | ~20 min |
 | Cardiology › Acute coronary syndromes · Adult | Pressure at the Kitchen Table | Inferior STEMI with right-ventricle involvement: read the 12-lead, V4R, the nitro trap, complete heart block, pacing | ALS | ~20 min |
 | Medical › Neurologic · Adult | Words Won't Come | Stroke with a large vessel occlusion: last known well, the glucose mimic, AF as the clot source, LAMS scoring, localization, the penumbra, airway after vomiting, destination | BLS/ALS | ~24 min |
 | Trauma › Multisystem · Adult | Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |

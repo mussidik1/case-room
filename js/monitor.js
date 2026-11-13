@@ -93,7 +93,11 @@
       clearTimeout(this.nibpTimer);
       this.cycling = false;
       Object.assign(this.cur, v);
-      if (v.sbp != null) this.nibp = { s: v.sbp, d: v.dbp };
+      if (v.rhythm === 'none') { // detached: forget the last patient's NIBP, waveform shape and label
+        this.nibp = null;
+        if (v.cap === undefined) this.cur.cap = 'normal';
+        if (v.label === undefined) delete this.cur.label;
+      } else if (v.sbp != null) this.nibp = { s: v.sbp, d: v.dbp };
       this.gen.set(this.genParams());
       this.render(true);
     }
@@ -191,7 +195,11 @@
       const lw = Math.max(1.6, Math.min(3, W / 420));
       this.strip(o.ecg, 0, sh, (v) => sh * 0.6 - v * sh * 0.3, getVar(this.el, '--ecg', '#4dff88'), 'e', pps, lw);
       this.strip(o.pleth, sh, sh, (v) => sh * 0.86 - v * sh * 0.62, getVar(this.el, '--spo2', '#4fd8ff'), 'p', pps, lw);
-      this.strip(o.co2, sh * 2, sh, (v) => sh * 0.9 - (v / 50) * sh * 0.75, getVar(this.el, '--co2', '#ffd84d'), 'c', pps, lw);
+      // capnography auto-ranges like a real monitor: 0–50, or 0–100 once EtCO₂ runs high (with hysteresis)
+      const e = this.cur.etco2 || 0;
+      if (e > 55) this.co2Top = 100; else if (e < 45) this.co2Top = 50;
+      const top = this.co2Top || 50;
+      this.strip(o.co2, sh * 2, sh, (v) => sh * 0.9 - (v / top) * sh * 0.75, getVar(this.el, '--co2', '#ffd84d'), 'c', pps, lw);
       this.x = b % W;
     }
 
