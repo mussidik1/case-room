@@ -1,5 +1,6 @@
 /* Case library structure.
-   Top level: the National Registry's NCCP 2025 topics, so a case maps straight to recert credit.
+   Top level: the National Registry's NCCP 2025 clinical topics, so a case maps straight to recert
+   credit. The fifth Registry topic, Operations, is left out on purpose.
    Inside each topic, an Adult and a Pediatric folder, then body-system (or body-region) headings
    modeled on how emergency medicine organizes its training.
    A case sets `topic`, `age`, and `subtopic` to ids from this file, and lives in
@@ -40,12 +41,6 @@
       { id: 'behavioral', name: 'Behavioral health' },
       { id: 'hematology', name: 'Hematology' },
       { id: 'environmental', name: 'Environmental' },
-    ] },
-    { id: 'operations', name: 'Operations', subtopics: [
-      { id: 'mci', name: 'MCI & disaster' },
-      { id: 'safety', name: 'Safety & wellness' },
-      { id: 'communication', name: 'Communication & handoff' },
-      { id: 'transport', name: 'Transport & destination' },
     ] },
   ];
   w.CR_AGES = [{ id: 'adult', name: 'Adult' }, { id: 'pediatric', name: 'Pediatric' }];

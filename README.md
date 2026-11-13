@@ -11,7 +11,7 @@ The cases are written to work anywhere. They don't name real places. Destination
 
 ## Cases
 
-The setup screen groups cases into folders by National Registry recertification topic (the NCCP 2025 model: Airway, Cardiology, Trauma, Medical, Operations), so each case maps straight to recert credit. Each topic has an Adult and a Pediatric folder. Inside those, cases sit under body-system headings, the way emergency medicine organizes its training; trauma is grouped by body region, as in ATLS and PHTLS. Empty headings show dimmed, ready for new cases. The full list of headings lives in `js/topics.js`.
+The setup screen groups cases into folders by National Registry recertification topic (the NCCP 2025 model's clinical topics: Airway, Cardiology, Trauma, Medical), so each case maps straight to recert credit. The fifth Registry topic, Operations, is left out. Each topic has an Adult and a Pediatric folder. Inside those, cases sit under body-system headings, the way emergency medicine organizes its training; trauma is grouped by body region, as in ATLS and PHTLS. Empty headings show dimmed, ready for new cases. The full list of headings lives in `js/topics.js`.
 
 | Folder | Case | What it covers | Level | Time |
 |---|---|---|---|---|
@@ -20,7 +20,7 @@ The setup screen groups cases into folders by National Registry recertification 
 | Trauma › Multisystem · Adult | Down at the Barrier | Motorcycle crash: tourniquet, pelvic binder, shock index and EtCO₂, whole blood vs. saline, the lethal triad, tension pneumothorax en route | ALS | ~25 min |
 | Medical › Allergy & immunology · Pediatric | The Birthday Party | Pediatric anaphylaxis: IM epinephrine, positioning, shark-fin capnography, the stridor trap, weight-based dose math with a tenfold-error branch, biphasic reactions | BLS/ALS | ~18 min |
 
-The 2025 model names only the five broad topics, with no required subtopics, and counts pediatric content inside them. The results CSV lists the folder for each case played.
+The 2025 model names only broad topics, with no required subtopics, and counts pediatric content inside them. The results CSV lists the folder for each case played.
 
 ## Running a game
 
@@ -92,7 +92,7 @@ STR is lifting, CPR, and extrication. DEX is IVs, leads, and procedures. CON is 
 
 ## Writing a new case
 
-Copy `js/cases/cardiology/adult/kitchen-table.js` into the folder for your case's topic and age group, for example `js/cases/trauma/pediatric/`. Set `topic` (`airway`, `cardiology`, `trauma`, `medical`, or `operations`) and `age` (`adult` or `pediatric`) to match the folder, and set `subtopic` to one of that topic's heading ids in `js/topics.js` (for example `neurologic` or `toxicology` under Medical). Then add a `<script>` line for the file in `host.html` next to the others. The case shows up under its heading on the setup screen. Each case is a list of steps:
+Copy `js/cases/cardiology/adult/kitchen-table.js` into the folder for your case's topic and age group, for example `js/cases/trauma/pediatric/`. Set `topic` (`airway`, `cardiology`, `trauma`, or `medical`) and `age` (`adult` or `pediatric`) to match the folder, and set `subtopic` to one of that topic's heading ids in `js/topics.js` (for example `neurologic` or `toxicology` under Medical). Then add a `<script>` line for the file in `host.html` next to the others. The case shows up under its heading on the setup screen. Each case is a list of steps:
 
 - `scene`: read-aloud text. Optional `vitals` (sets the monitor) and `hp` (+/-).
 - `roll`: everyone rolls one check, e.g. `{ ab: 'WIS', dc: 12 }`, with `success` and `fail` outcomes.
