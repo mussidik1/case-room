@@ -204,6 +204,7 @@ body.wide-ecg .stage-right { display: none; }
 .outcome.neutral { background: #182030; border-color: #33415a; }
 .outcome-t { font-weight: 800; margin-bottom: .15em; padding-right: 4em; }
 .outcome p { margin: .15em 0; font-size: 1.05em; }
+.outcome > p:first-child { padding-right: 4.5em; } /* roll results have no title line: keep the note clear of the HP badge */
 .hpd { position: absolute; top: .55em; right: .9em; font: 800 1.35em var(--num); }
 .hpd.up { color: var(--ok); } .hpd.down { color: var(--bad); }
 .lesson { background: linear-gradient(180deg, #f4e9d0, #e9dab7); color: var(--ink); border-radius: .6em; padding: .75em 1em; border-left: .38em solid #8a6a2a; animation: fade-up .5s 1.1s both; }

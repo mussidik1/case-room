@@ -414,6 +414,7 @@
     G.caseDef = applyOrder(base, G.order);
     G.finished = false;
     G.hp = G.hpMax = G.caseDef.hp || 100;
+    monitor.setAlarms(G.caseDef.alarms);
     G.stepIdx = -1;
     G.res = null;
     G.ask = null;
@@ -841,6 +842,7 @@
     G.ask = null;
     G.res = null;
     $('#setCode').value = G.room;
+    monitor.setAlarms(G.caseDef && G.caseDef.alarms);
     if (s.vit && s.vit.rhythm && s.vit.rhythm !== 'none') {
       const v = Object.assign({}, s.vit);
       if (v.nibpS) { v.sbp = v.nibpS; v.dbp = v.nibpD; }

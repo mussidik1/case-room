@@ -250,6 +250,24 @@
         V4R: { st: 0.15, t: 0.3 },
       }),
     },
+    // Anterior STEMI, LAD pattern: ST up V1–V4 (and I, aVL); reciprocal ST down II, III, aVF
+    anterior: {
+      hr: 100,
+      leads: withOverrides(NORMAL_12, {
+        I: { st: 0.08, t: 0.3 },
+        aVL: { st: 0.1, t: 0.24 },
+        II: { st: -0.05, t: 0.14 },
+        III: { st: -0.12, t: -0.04 },
+        aVF: { st: -0.09, t: 0.04 },
+        aVR: { st: -0.03 },
+        V1: { st: 0.16, t: 0.28 },
+        V2: { st: 0.36, t: 0.72, r: 0.28 },
+        V3: { st: 0.38, t: 0.74, r: 0.55 },
+        V4: { st: 0.26, t: 0.62 },
+        V5: { st: 0.1, t: 0.42 },
+        V6: { st: 0.03, t: 0.3 },
+      }),
+    },
   };
 
   // Build a 10 s beat schedule. Seeded so the same ECG renders the same way every time.

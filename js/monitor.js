@@ -97,7 +97,8 @@
         this.nibp = null;
         if (v.cap === undefined) this.cur.cap = 'normal';
         if (v.label === undefined) delete this.cur.label;
-      } else if (v.sbp != null) this.nibp = { s: v.sbp, d: v.dbp };
+      } else if ('nibpS' in v) this.nibp = v.nibpS ? { s: v.nibpS, d: v.nibpD } : null; // restoring a snapshot
+      else if (v.sbp != null) this.nibp = { s: v.sbp, d: v.dbp };
       this.gen.set(this.genParams());
       this.render(true);
     }
@@ -135,6 +136,14 @@
     }
 
     setShowRhythm(on) { this.showRhythm = !!on; this.render(true); }
+
+    // Alarm limits: { hr: [low, high], rr: [low, high], sbp: low }. Cases for children set their own.
+    setAlarms(a) {
+      const d = Monitor.ADULT_ALARMS;
+      a = a || {};
+      this.alarms = { hr: a.hr || d.hr, rr: a.rr || d.rr, sbp: a.sbp || d.sbp };
+      this.render(true);
+    }
 
     enableSound(on) {
       this.sound = !!on;
@@ -236,17 +245,18 @@
       const perfusing = !(c.rhythm === 'vfib' || c.rhythm === 'asystole') && c.sbp >= 45;
       let hr = '--';
       if (!off) hr = c.rhythm === 'vfib' ? '---' : c.rhythm === 'asystole' ? '0' : String(Math.round(c.hr));
-      set('.mn.hr', hr, !off && (c.hr < 50 || c.hr > 130 || c.rhythm === 'vfib' || c.rhythm === 'asystole'));
+      const A = this.alarms || Monitor.ADULT_ALARMS;
+      set('.mn.hr', hr, !off && (c.hr < A.hr[0] || c.hr > A.hr[1] || c.rhythm === 'vfib' || c.rhythm === 'asystole'));
       set('.mn.spo2', off || !perfusing ? '--' : String(Math.round(c.spo2)), perfusing && c.spo2 < 90);
       set('.mn.co2', off ? '--' : String(Math.round(c.etco2)), c.etco2 < 25 || c.etco2 > 50);
-      set('.mn.rr', off ? '--' : String(Math.round(c.rr)), c.rr < 8 || c.rr > 30);
+      set('.mn.rr', off ? '--' : String(Math.round(c.rr)), c.rr < A.rr[0] || c.rr > A.rr[1]);
       const nb = this.q('.mn.nibp');
       let ntxt = '--/--', map = '';
       if (!off && this.cycling) { ntxt = 'cycling'; }
       else if (!off && this.nibp) { ntxt = `${this.nibp.s}/${this.nibp.d}`; map = `(${Math.round((this.nibp.s + 2 * this.nibp.d) / 3)})`; }
       nb.querySelector('.v').textContent = ntxt;
       nb.querySelector('.map').textContent = map;
-      nb.classList.toggle('alarm', !off && !this.cycling && !!this.nibp && this.nibp.s < 90);
+      nb.classList.toggle('alarm', !off && !this.cycling && !!this.nibp && this.nibp.s < A.sbp);
       nb.classList.toggle('cycling', this.cycling);
       const rl = this.q('.mon-rhythm');
       const name = !off && this.showRhythm ? rhythmName(c) : '';
@@ -262,5 +272,6 @@
     return m[name];
   }
 
+  Monitor.ADULT_ALARMS = { hr: [50, 130], rr: [8, 30], sbp: 90 };
   root.CRMonitor = { Monitor, rhythmName };
 })(window);
