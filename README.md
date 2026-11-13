@@ -115,6 +115,17 @@ Monitor rhythms: `sinus`, `avb3` (complete heart block), `paced`, `afib`, `vtach
 
 The DM screen holds the game. It sends the current screen to the phones through three free public message relays at once (EMQX, HiveMQ, and Eclipse), and phones use whichever ones they can reach. Messages pass through public servers, so use first names or call signs, and never enter patient information. If a building's Wi-Fi blocks the relays, phones on cellular data still work, and so does a phone hotspot for the DM laptop.
 
+**Security.** Anyone who knows a room code can reach the public relays, so the game treats every message as untrusted:
+
+- Phones rebuild each message into a known-safe shape before showing anything, and both screens shrug off malformed or oversized messages.
+- Each phone makes a secret token when it joins. The DM screen ignores messages for that player without it, so nobody can answer as someone else.
+- The DM screen rolls every die. Phones only ask for a roll and show the result.
+- Joins are capped at 150 and rate-limited. **Lock the room** (lobby button or Settings) once your class is in, and remove anyone from Settings → People in the room, at any point in the game.
+- A security policy in each page only lets the site's own scripts run and only lets the page talk to the game relays.
+- `?relay=` works only for a relay on your own computer (local testing), and the join QR never includes it.
+
+A private relay with a login would add the last layer: it would keep outsiders off the room's channel entirely.
+
 Type is set in Cardo by David J. Perry, bundled with the site under the SIL Open Font License (`fonts/OFL.txt`), so it loads even where font services are blocked.
 
 *Teaching simulation. Follow your local protocols.*

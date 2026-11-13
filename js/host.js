@@ -5,7 +5,7 @@
   const CASES = window.CR_CASES || [];
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
-  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = (s) => (typeof s === 'string' ? s : typeof s === 'number' && Number.isFinite(s) ? String(s) : '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const params = new URLSearchParams(location.search);
   const CODE_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -27,6 +27,8 @@
     caseDef: CASES[0] || null, // during play, a per-game copy with the answer order shuffled
     order: null, // step id -> authored option keys, in the order shown this game
     peer: null, // another DM screen seen live on the same room code
+    locked: false, // no new players once the DM locks the room
+    joinWin: { t0: 0, n: 0 }, // new players per 10 s, so a flood can't fill the room
     closeArm: 0, // first press of "close the vote" while answers are still coming in
     stepIdx: -1,
     hp: 100,
@@ -62,7 +64,7 @@
     return Array.from(r, (x) => CODE_ALPHA[x % CODE_ALPHA.length]).join('');
   }
   function cleanCode(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8); }
-  function cleanName(s) { return String(s || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 18) || 'Adventurer'; }
+  function cleanName(s) { return (typeof s === 'string' ? s : '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 18) || 'Adventurer'; }
   function steps() { return G.caseDef ? G.caseDef.steps : []; }
   function step() { return steps()[G.stepIdx] || null; }
   function idxOf(id) { return steps().findIndex((s) => s.id === id); }
@@ -85,8 +87,7 @@
     const u = new URL('./', location.href);
     u.search = '';
     u.searchParams.set('r', G.room);
-    if (params.get('relay')) u.searchParams.set('relay', params.get('relay'));
-    return u.toString();
+    return u.toString(); // never copy a ?relay= override into the join QR
   }
   function joinDisplay() {
     const u = new URL('./', location.href);
@@ -160,7 +161,7 @@
     renderPeer();
     relay = new N.Relay({
       room: G.room, role: 'host',
-      onUp: onUp,
+      onUp: (m) => onUp(m, false), // network messages are never trusted
       onPeer: onPeer,
       onStatus: (s) => { G.net = s; renderBar(); },
     }).start();
@@ -238,6 +239,8 @@
       };
       s.got = [...a.picks.keys()];
       s.rolled = [...a.rolls.keys()];
+      s.rv = {}; // dice the DM screen rolled for each player, so each phone can show its own
+      for (const [pid, r] of a.rolls) s.rv[pid] = r.d;
     }
     if (G.res && (G.phase === 'reveal' || G.phase === 'rollReveal')) {
       const r = G.res;
@@ -254,13 +257,14 @@
       };
     }
     if (G.phase === 'final') s.fin = { win: G.hp > 0 };
+    s.locked = G.locked;
     return s;
   }
 
   /* ---------------- player messages ---------------- */
 
   function addPlayer(pid, name, cls, bot) {
-    const p = { pid, name: cleanName(name), cls: R.CLASSES[cls] ? cls : 'emt', xp: 0, lastXp: 0, joined: Date.now(), seen: Date.now(), bot: !!bot, crits: 0, fumbles: 0, insp: false, team: null, log: [] };
+    const p = { pid, name: cleanName(name), cls: typeof cls === 'string' && Object.prototype.hasOwnProperty.call(R.CLASSES, cls) ? cls : 'emt', xp: 0, lastXp: 0, joined: Date.now(), seen: Date.now(), bot: !!bot, crits: 0, fumbles: 0, insp: false, team: null, log: [] };
     G.players.set(pid, p);
     assignTeam(p);
     return p;
@@ -313,20 +317,50 @@
     if (i >= 0) G.history[i] = entry; else G.history.push(entry);
   }
 
-  function onUp(m) {
-    if (!m || typeof m.pid !== 'string' || m.pid.length > 32) return;
+  /* Every uplink message is untrusted: on a public relay it can come from anyone.
+     Each phone makes a secret token when it joins and sends it with every message; the DM screen binds
+     the token to that player and ignores messages for the player that don't carry it. Dice are rolled
+     here, never on the phone. Bots are local, so their calls are trusted. */
+  const MAX_PLAYERS = 150;
+  const PID_RE = /^(p|bot)-[A-Za-z0-9]{4,24}$/;
+  const TOK_RE = /^[A-Za-z0-9]{16,64}$/;
+  const KEY_RE = /^[A-H]$/;
+  const UP_TYPES = ['join', 'pick', 'roll', 'team', 'hb'];
+  function overRate(p) { // at most 40 messages per player per 10 seconds
+    const now = Date.now();
+    if (!p.rl || now - p.rl.t0 > 10000) p.rl = { t0: now, n: 0 };
+    return ++p.rl.n > 40;
+  }
+  function joinAllowed() {
+    if (G.locked || G.players.size >= MAX_PLAYERS) return false;
+    const now = Date.now(), w = G.joinWin;
+    if (now - w.t0 > 10000) { w.t0 = now; w.n = 0; }
+    return ++w.n <= 80;
+  }
+  function onUp(m, trusted) {
+    if (!m || typeof m !== 'object' || !UP_TYPES.includes(m.t)) return;
+    if (typeof m.pid !== 'string' || !PID_RE.test(m.pid)) return;
+    if (!trusted && (typeof m.tok !== 'string' || !TOK_RE.test(m.tok))) return;
     if (G.kicked.has(m.pid)) { schedulePublish(); return; }
     if (G.phase === 'setup') return;
     let p = G.players.get(m.pid);
     if (!p) {
-      if (!m.name) return;
+      if (typeof m.name !== 'string' || !m.name.trim() || !joinAllowed()) return;
       p = addPlayer(m.pid, m.name, m.cls);
-    } else if (m.t === 'join') {
-      p.name = cleanName(m.name);
-      if (R.CLASSES[m.cls]) p.cls = m.cls;
+      if (!trusted) p.tok = m.tok;
+    } else {
+      if (!trusted) {
+        if (!p.tok) p.tok = m.tok; // a player restored from an older save: bind now
+        else if (p.tok !== m.tok) return; // someone else using this player's id
+      }
+      if (overRate(p)) return;
+      if (m.t === 'join') {
+        if (typeof m.name === 'string' && m.name.trim()) p.name = cleanName(m.name);
+        if (typeof m.cls === 'string' && Object.prototype.hasOwnProperty.call(R.CLASSES, m.cls)) p.cls = m.cls;
+      }
     }
     p.seen = Date.now();
-    if (m.t === 'team' && ['lobby', 'setup'].includes(G.phase) && teamList().some((t) => t.id === m.team)) {
+    if (m.t === 'team' && ['lobby', 'setup'].includes(G.phase) && typeof m.team === 'string' && teamList().some((t) => t.id === m.team)) {
       p.team = m.team;
       if (G.phase === 'lobby') scheduleLive();
     }
@@ -334,12 +368,11 @@
     const a = G.ask;
     if (m.t === 'pick' && a && !a.closed && a.kind === 'choice' && m.sid === a.sid && !a.picks.has(p.pid)) {
       const st = step();
-      if (opt(st, m.k)) a.picks.set(p.pid, { k: m.k, t: Date.now() });
+      if (typeof m.k === 'string' && KEY_RE.test(m.k) && opt(st, m.k)) a.picks.set(p.pid, { k: m.k, t: Date.now() });
       checkAllIn();
-    } else if (m.t === 'roll' && a && !a.closed && m.sid === a.sid && !a.rolls.has(p.pid)) {
+    } else if (m.t === 'roll' && a && !a.closed && G.settings.dice && m.sid === a.sid && !a.rolls.has(p.pid)) {
       if (a.kind === 'choice' && !a.picks.has(p.pid)) return;
-      const d = Array.isArray(m.d) ? m.d.slice(0, 2).map((x) => parseInt(x, 10)).filter((x) => x >= 1 && x <= 20) : [];
-      if (d.length) a.rolls.set(p.pid, { d });
+      a.rolls.set(p.pid, { d: a.insp.has(p.pid) ? [R.d20(), R.d20()] : [R.d20()] });
       checkAllIn();
     }
     schedulePublish();
@@ -365,6 +398,7 @@
     G.room = cleanCode($('#setCode').value) || newCode();
     $('#setCode').value = G.room;
     G.gid = N.rid(6);
+    G.locked = false;
     G.phase = 'lobby';
     G.hp = G.hpMax = (G.caseDef && G.caseDef.hp) || 100;
     saveJson(LS_SETTINGS, G.settings);
@@ -735,13 +769,12 @@
           let choices = r < 0.55 ? pool('best') : r < 0.75 ? pool('ok') : pool('wrong');
           if (!choices.length) choices = st.options;
           const k = choices[Math.floor(Math.random() * choices.length)].k;
-          onUp({ t: 'pick', pid: b.pid, sid: a.sid, k, mid: N.rid(10) });
+          onUp({ t: 'pick', pid: b.pid, sid: a.sid, k, mid: N.rid(10) }, true);
         }
         if (G.settings.dice) {
           setTimeout(() => {
             if (G.ask !== a || a.closed) return;
-            const d = a.insp.has(b.pid) ? [R.d20(), R.d20()] : [R.d20()];
-            onUp({ t: 'roll', pid: b.pid, sid: a.sid, d, mid: N.rid(10) });
+            onUp({ t: 'roll', pid: b.pid, sid: a.sid, mid: N.rid(10) }, true);
           }, 600 + Math.random() * 1800);
         }
       }, 1200 + Math.random() * maxDelay);
@@ -772,7 +805,7 @@
     saveJson(LS_SAVE, {
       v: 3, ts: Date.now(), room: G.room, gid: G.gid, askN: G.askN, caseId: G.caseDef.id, order: G.order,
       stepIdx: G.stepIdx, hp: G.hp, hpMax: G.hpMax, finished: G.finished,
-      phase: u.phase, ask: packAsk(u.ask), res: u.res || null, pendingNext: u.pendingNext || null,
+      phase: u.phase, ask: packAsk(u.ask), res: u.res || null, pendingNext: u.pendingNext || null, locked: G.locked,
       players: [...G.players.values()], kicked: [...G.kicked], settings: G.settings, history: G.history,
       vit: monitor ? monitor.snapshot() : null,
     });
@@ -803,6 +836,7 @@
     G.finished = !!s.finished;
     G.stepIdx = s.stepIdx;
     G.pendingNext = s.pendingNext || null;
+    G.locked = !!s.locked;
     G.adhoc = null;
     G.ask = null;
     G.res = null;
@@ -1088,11 +1122,13 @@
             <div class="party" id="lobbyParty"></div>
             <div class="lobby-actions">
               <button type="button" id="btnBots" class="ghost">+ Practice party (6 bots)</button>
+              <button type="button" id="btnLock" class="ghost"></button>
               <button type="button" id="btnBack" class="ghost">Change case or settings</button>
             </div>
           </div>
         </div>`;
       $('#btnBots').onclick = () => addBots(6);
+      $('#btnLock').onclick = () => setLocked(!G.locked);
       $('#btnBack').onclick = () => {
         G.phase = 'setup';
         if (relay) { relay.publishState(Object.assign(buildState(), { phase: 'setup' })); }
@@ -1100,6 +1136,8 @@
         render();
       };
     }
+    const lockBtn = $('#btnLock');
+    if (lockBtn) { lockBtn.textContent = G.locked ? '🔒 Room locked · unlock' : '🔓 Lock room to new players'; lockBtn.classList.toggle('on', G.locked); }
     const list = ranked();
     const ts = teamList();
     const chip = (p) => `
@@ -1122,7 +1160,7 @@
     for (const c of $$('.pc', box)) {
       c.onclick = (e) => {
         const pid = c.dataset.pid;
-        if (e.target.closest('.pc-x')) { G.kicked.add(pid); G.players.delete(pid); renderLobby(); renderControls(); renderBar(); publish(); scheduleSave(); return; }
+        if (e.target.closest('.pc-x')) { kickPlayer(pid); return; }
         const p = G.players.get(pid);
         if (!p || !ts.length) return;
         const i = ts.findIndex((t) => t.id === p.team);
@@ -1453,7 +1491,7 @@
     if (v == null) return '';
     let t = String(v);
     if (typeof v === 'string' && /^[=+\-@]/.test(t)) t = "'" + t; // keep spreadsheets from running names as formulas
-    return /[",\r\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    return '"' + t.replace(/"/g, '""') + '"'; // quote every cell, so no locale's separator can split one
   }
   function toCsv(rows) { return '\ufeff' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n'); }
   function stamp(d) {
@@ -1556,6 +1594,32 @@
     $('#btnCall').onclick = () => { closeModal('#mRoll'); startAdhoc(ab, dc, $('#rollText').value.trim()); $('#rollText').value = ''; };
   }
 
+  // Remove a player for the rest of this game (their id is refused from now on)
+  function kickPlayer(pid) {
+    G.kicked.add(pid);
+    G.players.delete(pid);
+    if (G.ask) { G.ask.picks.delete(pid); G.ask.rolls.delete(pid); }
+    viewKey = '';
+    render();
+    renderControls();
+    renderBar();
+    publish();
+    scheduleSave();
+  }
+  function setLocked(on) {
+    G.locked = !!on;
+    if (G.phase === 'lobby') renderLobby();
+    if (!$('#mSettings').hidden) buildSettingsModal();
+    publish();
+    scheduleSave();
+  }
+  function rosterHtml() {
+    const list = ranked();
+    if (!list.length) return '<p class="muted small">No one has joined yet.</p>';
+    return `<div class="mini-roster">${list.map((p) => `
+      <div class="mr" data-pid="${esc(p.pid)}"><span>${R.CLASSES[p.cls].icon}</span><b>${esc(p.name)}</b><span class="muted">${esc(R.CLASSES[p.cls].name)}${p.bot ? ' · bot' : ''} · ${p.xp} XP</span><button type="button" class="mr-x" title="Remove from the game">Remove</button></div>`).join('')}</div>`;
+  }
+
   function buildSettingsModal() {
     const m = $('#mSettings');
     m.innerHTML = `
@@ -1563,11 +1627,24 @@
         <h2>Settings</h2>
         <div class="settings">${settingsHtml()}</div>
         <p class="muted small">Join link: ${esc(G.room ? joinUrl() : 'open a room first')}</p>
+        ${G.room ? `<div class="row"><span>New players</span><span class="seg"><button type="button" data-lock="0" class="${G.locked ? '' : 'on'}">Open</button><button type="button" data-lock="1" class="${G.locked ? 'on' : ''}">Locked</button></span></div>
+        <details class="room-people"><summary>People in the room (${ranked().length})</summary>${rosterHtml()}</details>` : ''}
         ${people().length ? `<div class="row"><span>Export results</span><span class="exp-btns"><button type="button" class="ghost" data-export="summary">⬇ Summary (CSV)</button><button type="button" class="ghost" data-export="log">⬇ Decision log (CSV)</button></span></div>` : ''}
         <div class="modal-actions"><button type="button" class="primary" data-close>Done</button></div>
       </div>`;
     bindSettings(m);
     bindExport(m);
+    for (const b of $$('[data-lock]', m)) b.onclick = () => setLocked(b.dataset.lock === '1');
+    for (const b of $$('.mr-x', m)) {
+      b.onclick = () => {
+        const row = b.closest('.mr');
+        kickPlayer(row.dataset.pid);
+        const d = $('.room-people', m);
+        buildSettingsModal();
+        const d2 = $('.room-people', $('#mSettings'));
+        if (d && d.open && d2) d2.open = true;
+      };
+    }
     $('[data-close]', m).onclick = () => closeModal('#mSettings');
   }
 

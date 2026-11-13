@@ -70,7 +70,9 @@
     const fill = opts.fill || '#262b36';
     const stroke = opts.stroke || '#d9a441';
     const ink = opts.ink || '#f4ead2';
-    const v = value == null ? '' : String(value);
+    // only a whole number ever reaches the SVG: the value can come from a network message
+    const n = typeof value === 'number' ? value : (typeof value === 'string' && /^\d{1,3}$/.test(value) ? +value : NaN);
+    const v = Number.isInteger(n) && n >= 0 && n <= 999 ? String(n) : '';
     return `<svg class="d20" viewBox="0 0 100 100" aria-hidden="true">
       <polygon points="50,3 93,27 93,73 50,97 7,73 7,27" fill="${fill}" stroke="${stroke}" stroke-width="3.5" stroke-linejoin="round"/>
       <polygon points="50,22 76,66 24,66" fill="none" stroke="${stroke}" stroke-opacity=".55" stroke-width="2.2" stroke-linejoin="round"/>

@@ -363,3 +363,13 @@ body.wide-ecg .stage-right { display: none; }
 /* another DM screen is live on the same room code */
 .peer-warn { position: fixed; top: 3.2em; left: 50%; transform: translateX(-50%); z-index: 60; width: min(92vw, 60em); background: #ffd166; color: #1d1606; border-radius: .7em; padding: .75em 1.1em; font-size: 1.05em; line-height: 1.35; box-shadow: 0 10px 34px rgba(0, 0, 0, .5); }
 .peer-warn b { font-weight: 800; }
+
+/* room lock and in-game roster (Settings) */
+.lobby-actions #btnLock.on { border-color: var(--gold); color: var(--gold2); }
+.room-people { margin: .4em 0 .8em; }
+.room-people summary { cursor: pointer; color: var(--gold2); font-weight: 700; padding: .3em 0; }
+.mini-roster { display: grid; gap: .3em; max-height: 16em; overflow: auto; margin-top: .4em; }
+.mr { display: grid; grid-template-columns: auto auto 1fr auto; gap: .55em; align-items: center; padding: .35em .55em; border: 1px solid var(--line); border-radius: .55em; }
+.mr .muted { font-size: .82em; }
+.mr-x { font-size: .8em; padding: .25em .7em; border: 1px solid #5a2a30; color: #ff8a95; background: transparent; border-radius: .45em; }
+.mr-x:hover { background: #2a1216; }

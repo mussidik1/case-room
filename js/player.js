@@ -4,17 +4,17 @@
   const R = window.CRRules, N = window.CRNet;
   const $ = (s, el) => (el || document).querySelector(s);
   const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
-  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const esc = (s) => (typeof s === 'string' ? s : typeof s === 'number' && Number.isFinite(s) ? String(s) : '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const params = new URLSearchParams(location.search);
   const cleanCode = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
-  const cleanName = (s) => String(s || '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 18);
+  const cleanName = (s) => (typeof s === 'string' ? s : '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 18);
   const GRADE = { best: ['Best call', '✓'], ok: ['Reasonable', '~'], wrong: ['Harmful call', '✗'] };
 
   const P = {
     room: cleanCode(params.get('r')),
-    pid: null, name: '', cls: '',
+    pid: null, name: '', cls: '', tok: null,
     relay: null, st: null, hid: null, seq: 0, lastAt: 0, startedAt: 0,
-    picks: {}, rolls: {}, rolling: false, key: '', net: { ok: 0, total: 0, local: false },
+    picks: {}, rolls: {}, rolling: null, key: '', net: { ok: 0, total: 0, local: false },
   };
 
   // Saved per room code so a refresh puts you back in the game. Question ids include the host's game id,
@@ -33,7 +33,7 @@
   function saveId() {
     P.picks = recent(P.picks);
     P.rolls = recent(P.rolls);
-    try { localStorage.setItem(lsKey(), JSON.stringify({ pid: P.pid, name: P.name, cls: P.cls, picks: P.picks, rolls: P.rolls, t: Date.now() })); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(lsKey(), JSON.stringify({ pid: P.pid, tok: P.tok, name: P.name, cls: P.cls, picks: P.picks, rolls: P.rolls, t: Date.now() })); } catch (e) { /* ignore */ }
   }
 
   /* ---------------- join ---------------- */
@@ -71,6 +71,8 @@
     const prev = loadId();
     const keep = fresh(prev);
     P.pid = keep && prev.pid ? prev.pid : 'p-' + N.rid(10);
+    // a secret only this phone and the DM screen know: it stops anyone else answering as you
+    P.tok = keep && prev.tok && /^[A-Za-z0-9]{16,64}$/.test(prev.tok) && prev.pid === P.pid ? prev.tok : N.rid(24);
     P.picks = (keep && prev.picks) || {};
     P.rolls = (keep && prev.rolls) || {};
     P.name = name;
@@ -108,33 +110,117 @@
   function send(m) {
     if (!P.relay) return;
     m.pid = P.pid;
+    m.tok = P.tok;
     m.name = P.name;
     m.cls = P.cls;
     P.relay.send(m);
   }
   function sendJoin() { send({ t: 'join' }); }
 
-  function onState(m) {
-    if (!m || m.app !== 'caseroom' || m.room !== P.room) return;
-    if (Date.now() - m.ts > 6 * 3600 * 1000) return;
+  /* Everything from the relay is untrusted: anyone who knows the room code can publish to it.
+     cleanState() rebuilds each message from scratch, keeping only expected fields with checked types,
+     so nothing from the network reaches the page unchecked. Team names and colors come from our own list. */
+  const KEY = /^[A-H]$/;
+  const SID = /^[A-Za-z0-9_.-]{1,64}$/;
+  const PID = /^(p|bot)-[A-Za-z0-9]{4,24}$/;
+  const PHASES = ['setup', 'lobby', 'scene', 'choose', 'roll', 'reveal', 'rollReveal', 'board', 'final'];
+  const GRADES = ['best', 'ok', 'wrong'];
+  const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+  const int = (v, lo, hi, d) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(Math.min(hi, Math.max(lo, v))) : d);
+  const arr = (v, max) => (Array.isArray(v) ? v.slice(0, max) : []);
+  const pids = (v) => arr(v, 400).filter((x) => typeof x === 'string' && PID.test(x));
+  const ab = (v) => (typeof v === 'string' && Object.prototype.hasOwnProperty.call(R.ABILITIES, v) ? v : null);
+  const die = (v) => Number.isInteger(v) && v >= 1 && v <= 20;
+  const ownKeys = (o, max) => (isObj(o) ? Object.keys(o).slice(0, max) : []);
+  function cleanState(m) {
+    if (!isObj(m) || m.app !== 'caseroom' || m.room !== P.room) return null;
+    const now = Date.now();
+    const ts = int(m.ts, 0, 8.64e15, 0);
+    if (!ts || ts > now + 10 * 60 * 1000 || now - ts > 6 * 3600 * 1000) return null; // stale, or from the future
+    const hid = str(m.hid, 64);
+    if (!SID.test(hid)) return null;
+    const phase = PHASES.includes(m.phase) ? m.phase : 'setup';
+    const s = {
+      hid, ts, seq: int(m.seq, 0, 1e12, 0), phase,
+      title: str(m.title, 200), dice: m.dice === true, locked: m.locked === true, n: int(m.n, 0, 100000, 0),
+      kicked: pids(m.kicked), insp: pids(m.insp), got: pids(m.got), rolled: pids(m.rolled),
+      step: isObj(m.step) ? { id: str(m.step.id, 64), title: str(m.step.title, 200), text: str(m.step.text, 5000) } : null,
+      hp: Array.isArray(m.hp) ? [int(m.hp[0], -999, 999, 0), int(m.hp[1], 1, 999, 100)] : null,
+      vit: isObj(m.vit) ? { hr: int(m.vit.hr, 0, 400, 0), bp: typeof m.vit.bp === 'string' && /^\d{1,3}\/\d{1,3}$/.test(m.vit.bp) ? m.vit.bp : '', spo2: int(m.vit.spo2, 0, 100, 0) } : null,
+      xp: Object.create(null), teams: [], ask: null, rv: Object.create(null), res: null, fin: null,
+    };
+    for (const k of ownKeys(m.xp, 2000)) {
+      const x = m.xp[k];
+      if (!PID.test(k) || !Array.isArray(x)) continue;
+      const team = R.TEAMS.find((t) => t.id === x[4]);
+      s.xp[k] = [int(x[0], -1e7, 1e7, 0), int(x[1], 1, 100000, 1), int(x[2], 1, 99, 1), int(x[3], -1e7, 1e7, 0), team ? team.id : ''];
+    }
+    for (const t of arr(m.teams, 8)) {
+      const def = Array.isArray(t) && R.TEAMS.find((x) => x.id === t[0]);
+      if (def) s.teams.push([def.id, def.name, def.color, int(t[3], -1e7, 1e7, 0), int(t[4], 0, 100000, 0)]);
+    }
+    if (isObj(m.ask) && (phase === 'choose' || phase === 'roll')) {
+      const a = m.ask;
+      const kind = a.kind === 'choice' ? 'choice' : a.kind === 'roll' ? 'roll' : null;
+      const sid = str(a.sid, 64);
+      if (kind && SID.test(sid)) {
+        s.ask = {
+          sid, kind, title: str(a.title, 200), prompt: str(a.prompt, 3000),
+          options: kind === 'choice' ? arr(a.options, 8).filter((o) => isObj(o) && typeof o.k === 'string' && KEY.test(o.k)).map((o) => ({ k: o.k, t: str(o.t, 500), ab: ab(o.ab) || 'INT' })) : null,
+          ab: kind === 'roll' ? ab(a.ab) || 'WIS' : null,
+          rem: a.rem == null ? null : int(a.rem, 0, 3600000, 0),
+          dur: a.dur == null ? null : int(a.dur, 1, 3600000, null),
+        };
+        for (const k of ownKeys(m.rv, 2000)) {
+          const d = arr(m.rv[k], 2).filter(die);
+          if (PID.test(k) && d.length) s.rv[k] = d;
+        }
+      }
+    }
+    if (isObj(m.res) && (phase === 'reveal' || phase === 'rollReveal')) {
+      const r = m.res;
+      const per = Object.create(null);
+      for (const k of ownKeys(r.per, 2000)) {
+        const x = r.per[k];
+        if (!PID.test(k) || !Array.isArray(x)) continue;
+        per[k] = [typeof x[0] === 'string' && KEY.test(x[0]) ? x[0] : '', die(x[1]) ? x[1] : null, int(x[2], -99, 99, 0), int(x[3], -99, 999, 0), x[4] ? 1 : 0,
+          x[5] === 20 ? 20 : x[5] === 1 ? 1 : 0, int(x[6], -1e6, 1e6, 0), GRADES.includes(x[7]) ? x[7] : '', ab(x[8]) || '', int(x[9], 0, 99, 0)];
+      }
+      const pa = isObj(r.party) ? r.party : null;
+      s.res = {
+        sid: str(r.sid, 64), kind: r.kind === 'choice' ? 'choice' : 'roll',
+        best: arr(r.best, 8).filter((k) => typeof k === 'string' && KEY.test(k)),
+        party: pa ? { k: typeof pa.k === 'string' && KEY.test(pa.k) ? pa.k : null, ok: !!pa.ok, passed: int(pa.passed, 0, 100000, 0), total: int(pa.total, 0, 100000, 0), dc: int(pa.dc, 0, 99, 0) } : null,
+        partyText: str(r.partyText, 500), note: str(r.note, 3000), hp: int(r.hp, -999, 999, 0), per,
+      };
+    }
+    if (phase === 'final' && isObj(m.fin)) s.fin = { win: !!m.fin.win };
+    return s;
+  }
+
+  function onState(raw) {
+    const m = cleanState(raw);
+    if (!m) return;
+    const quiet = Date.now() - P.lastAt > 8000; // our DM screen has gone quiet: accept whoever is alive
     if (m.hid !== P.hid) {
-      if (P.st && m.ts < P.st.ts - 5000) return; // an older host session
+      if (P.st && m.ts < P.st.ts - 5000 && !quiet) return; // an older host session
       P.hid = m.hid;
       P.seq = 0;
       sendJoin();
     }
-    if (m.seq <= P.seq) return;
+    if (m.seq <= P.seq && !quiet) return;
     P.seq = m.seq;
     P.st = m;
     P.lastAt = Date.now();
     if (m.ask && m.ask.rem != null) m.ask.deadline = Date.now() + m.ask.rem;
     // the host lost us (it restarted): say hello again
-    if (m.phase !== 'setup' && m.xp && !m.xp[P.pid] && !(m.kicked || []).includes(P.pid) && Date.now() - (P.lastJoinAt || 0) > 4000) {
+    if (m.phase !== 'setup' && !m.xp[P.pid] && !m.kicked.includes(P.pid) && Date.now() - (P.lastJoinAt || 0) > 4000) {
       P.lastJoinAt = Date.now();
       sendJoin();
       const a = m.ask;
       if (a && P.picks[a.sid]) send({ t: 'pick', sid: a.sid, k: P.picks[a.sid] });
-      if (a && P.rolls[a.sid]) send({ t: 'roll', sid: a.sid, d: P.rolls[a.sid] });
+      if (a && P.rolling === a.sid) send({ t: 'roll', sid: a.sid });
     }
     render();
   }
@@ -166,6 +252,7 @@
     const m = me();
     $('.ph-xp').textContent = s && s.phase !== 'setup' ? `Lv ${m.level} · ${m.xp} XP` : '';
 
+    if (s && P.rolling && (!s.ask || s.ask.sid !== P.rolling)) { clearInterval(P.rollIv); P.rolling = null; } // the vote moved on
     if (s && (s.kicked || []).includes(P.pid)) return setContent('kicked', `<div class="card center"><h2>You've been removed</h2><p class="muted">The DM removed you from room ${esc(P.room)}.</p></div>`);
     if (!s) {
       const late = Date.now() - P.startedAt > 9000;
@@ -175,6 +262,7 @@
       });
     }
 
+    if (s.locked && !s.xp[P.pid]) return setContent('locked', `<div class="card center"><h2>This room is locked</h2><p class="muted">The DM has closed room ${esc(P.room)} to new players. Ask them to unlock it.</p></div>`);
     const ph = s.phase;
     const a = s.ask;
     if (ph === 'setup') return setContent('setup', `<div class="card center"><div class="spin">${R.d20Svg('')}</div><h2>The DM is setting up</h2><p class="muted">Hang tight.</p></div>`);
@@ -187,17 +275,19 @@
       });
     }
     if (ph === 'scene') {
-      return setContent('scene' + (s.step && s.step.id), `<div class="card"><div class="kicker">Scene · ${esc(s.step.title)}</div><p class="story">${esc(s.step.text || '')}</p></div><p class="muted center">Listen to the DM.</p>`);
+      const stp = s.step || { id: '', title: '', text: '' };
+      return setContent('scene' + stp.id, `<div class="card"><div class="kicker">Scene · ${esc(stp.title)}</div><p class="story">${esc(stp.text)}</p></div><p class="muted center">Listen to the DM.</p>`);
     }
     if ((ph === 'choose' || ph === 'roll') && a) {
-      const picked = P.picks[a.sid];
-      const rolled = P.rolls[a.sid];
+      const picked = KEY.test(P.picks[a.sid] || '') ? P.picks[a.sid] : undefined;
+      const dice = myDice(a);
       if (a.kind === 'choice' && !picked) return renderOptions(a);
-      if (s.dice && !rolled) {
-        const ab = a.kind === 'choice' ? (a.options.find((o) => o.k === picked) || {}).ab : a.ab;
-        return renderRoll(a, ab, picked);
+      if (P.rolling === a.sid) return; // the die is tumbling: let it land
+      if (s.dice && !dice) {
+        const abl = a.kind === 'choice' ? (a.options.find((o) => o.k === picked) || {}).ab : a.ab;
+        return renderRoll(a, abl, picked);
       }
-      return renderWaiting(a, picked, rolled);
+      return renderWaiting(a, picked, dice);
     }
     if ((ph === 'reveal' || ph === 'rollReveal') && s.res) return renderResult(s.res);
     if (ph === 'board') return renderStanding();
@@ -261,33 +351,41 @@
         <div class="tap">Tap to roll</div>
       </div>`,
     () => {
-      $('#btnRoll').onclick = () => doRoll(a, ab, mod, insp);
+      $('#btnRoll').onclick = () => doRoll(a);
     });
   }
 
-  function doRoll(a, ab, mod, insp) {
-    if (P.rolling || P.rolls[a.sid]) return;
-    P.rolling = true;
+  // The DM screen rolls the dice (so nobody can fake a natural 20). The phone asks, tumbles, and lands on
+  // whatever the DM screen rolled.
+  function myDice(a) {
+    const s = P.st;
+    return s && a && s.ask && s.ask.sid === a.sid && s.rolled.includes(P.pid) && s.rv[P.pid] ? s.rv[P.pid] : null;
+  }
+  function doRoll(a) {
+    if (P.rolling || myDice(a)) return;
+    P.rolling = a.sid;
+    P.rollAt = Date.now();
+    P.lastRollSend = Date.now();
+    send({ t: 'roll', sid: a.sid });
     const btn = $('#btnRoll');
     btn.classList.add('rolling');
     $('.tap').textContent = 'Rolling…';
-    const dice = insp ? [R.d20(), R.d20()] : [R.d20()];
     const faces = $$('.d20 text', btn);
-    let n = 0;
-    const iv = setInterval(() => {
+    clearInterval(P.rollIv);
+    P.rollIv = setInterval(() => {
       faces.forEach((f) => { f.textContent = 1 + Math.floor(Math.random() * 20); });
-      if (++n > 13) {
-        clearInterval(iv);
-        faces.forEach((f, i) => { f.textContent = dice[i]; });
-        btn.classList.remove('rolling');
-        P.rolls[a.sid] = dice;
-        P.rolling = false;
-        saveId();
-        send({ t: 'roll', sid: a.sid, d: dice });
-        const kept = insp ? Math.max(dice[0], dice[1]) : dice[0];
-        buzz(kept === 20 ? [40, 40, 90] : kept === 1 ? [220] : 20);
-        setTimeout(render, 900);
-      }
+      if (Date.now() - P.lastRollSend > 3500) { P.lastRollSend = Date.now(); send({ t: 'roll', sid: a.sid }); } // no answer yet: ask again
+      const d = myDice(a);
+      if (!d || Date.now() - P.rollAt < 900) return;
+      clearInterval(P.rollIv);
+      faces.forEach((f, i) => { if (d[i] != null) f.textContent = d[i]; });
+      btn.classList.remove('rolling');
+      P.rolls[a.sid] = d;
+      P.rolling = null;
+      saveId();
+      const kept = d.length > 1 ? Math.max(d[0], d[1]) : d[0];
+      buzz(kept === 20 ? [40, 40, 90] : kept === 1 ? [220] : 20);
+      setTimeout(render, 900);
     }, 70);
   }
 
@@ -419,7 +517,6 @@
       if (!(s.dice ? rolled : got) && Date.now() - (P.lastResend || 0) > 3500) {
         P.lastResend = Date.now();
         if (P.picks[a.sid]) send({ t: 'pick', sid: a.sid, k: P.picks[a.sid] });
-        if (P.rolls[a.sid]) send({ t: 'roll', sid: a.sid, d: P.rolls[a.sid] });
       }
     }
     if (!s) { const late = Date.now() - P.startedAt > 9000; if (late && P.key === 'waitfalse') render(); }
@@ -449,7 +546,8 @@
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { keepAwake(); if (P.pid) sendJoin(); } });
     const saved = P.room ? loadId() : null;
     if (saved && saved.pid && saved.name && saved.cls && fresh(saved)) {
-      Object.assign(P, { pid: saved.pid, name: saved.name, cls: saved.cls, picks: saved.picks || {}, rolls: saved.rolls || {} });
+      Object.assign(P, { pid: saved.pid, name: saved.name, cls: saved.cls, picks: saved.picks || {}, rolls: saved.rolls || {}, tok: /^[A-Za-z0-9]{16,64}$/.test(saved.tok || '') ? saved.tok : N.rid(24) });
+      saveId();
       enter();
     } else {
       // a day-old visit to a reused room code: start fresh, but keep the name and class filled in
